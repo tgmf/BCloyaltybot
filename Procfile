@@ -1,1 +1,1 @@
-web: gunicorn bc_loyalty_bot:flask_app --bind 0.0.0.0:$PORT
+web: gunicorn app:flask_app --bind 0.0.0.0:$PORT
