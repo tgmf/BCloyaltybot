@@ -63,12 +63,9 @@ def create_app():
         # Register bot handlers
         register_bot_handlers()
         
-        # Initialize bot applications
-        run_async_task(init_bot_apps())
-        
-        # Setup webhooks
+        # Initialize bot applications and setup webhooks
         webhook_manager = WebhookManager()
-        run_async_task(setup_webhooks())
+        run_async_task(init_everything())
         
         # Register Flask routes
         register_flask_routes()
@@ -79,6 +76,11 @@ def create_app():
     except Exception as e:
         logger.error(f"Failed to create Flask app: {e}")
         return None
+
+async def init_everything():
+    """Initialize both bot apps and webhooks in same event loop"""
+    await init_bot_apps()
+    await setup_webhooks()
 
 async def init_bot_apps():
     """Initialize bot applications"""
