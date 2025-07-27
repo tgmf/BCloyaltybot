@@ -1,1 +1,1 @@
-worker: python bc_loyalty_bot.py
+web: python bc_loyalty_bot.py

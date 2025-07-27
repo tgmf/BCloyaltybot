@@ -603,35 +603,97 @@ class BotApplication:
 
 
 def main():
-    """Run the main bot only for now"""
+    """Run both bots using threading"""
+    import threading
+    import time
     
     # Check environment variables
     main_token = os.getenv("MAIN_BOT_TOKEN")
-    if not main_token:
-        logger.error("MAIN_BOT_TOKEN not provided")
+    admin_token = os.getenv("ADMIN_BOT_TOKEN")
+    
+    if not main_token or not admin_token:
+        logger.error("Bot tokens not provided")
         return
     
-    # Create application directly
-    application = Application.builder().token(main_token).build()
-    
-    # Create bot app instance
-    app = BotApplication()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", app.main_start))
-    application.add_handler(CallbackQueryHandler(app.main_navigation, pattern="^(prev|next)$"))
-    application.add_handler(CallbackQueryHandler(app.main_visit_link, pattern="^visit_"))
-    
-    # Initialize content manager in sync context
-    app.content_manager = ContentManager(
+    # Shared content manager
+    content_manager = ContentManager(
         os.getenv("GOOGLE_SHEETS_CREDENTIALS"), 
         os.getenv("GOOGLE_SPREADSHEET_ID")
     )
     
-    logger.info("Starting main bot...")
+    def run_main_bot():
+        """Run main bot in separate thread"""
+        try:
+            logger.info("Starting main bot...")
+            
+            # Create main bot application
+            main_app = Application.builder().token(main_token).build()
+            
+            # Create bot app instance for main bot
+            app = BotApplication()
+            app.content_manager = content_manager
+            
+            # Add main bot handlers
+            main_app.add_handler(CommandHandler("start", app.main_start))
+            main_app.add_handler(CallbackQueryHandler(app.main_navigation, pattern="^(prev|next)$"))
+            main_app.add_handler(CallbackQueryHandler(app.main_visit_link, pattern="^visit_"))
+            
+            # Run main bot
+            main_app.run_polling(drop_pending_updates=True)
+            
+        except Exception as e:
+            logger.error(f"Main bot error: {e}")
     
-    # Run bot
-    application.run_polling(drop_pending_updates=True)
+    def run_admin_bot():
+        """Run admin bot in separate thread"""
+        try:
+            logger.info("Starting admin bot...")
+            
+            # Create admin bot application
+            admin_app = Application.builder().token(admin_token).build()
+            
+            # Create bot app instance for admin bot
+            app = BotApplication()
+            app.content_manager = content_manager
+            
+            # Add admin bot handlers
+            admin_app.add_handler(CommandHandler("start", app.admin_start))
+            admin_app.add_handler(CommandHandler("list", app.admin_list))
+            admin_app.add_handler(CommandHandler("toggle", app.admin_toggle))
+            admin_app.add_handler(CommandHandler("delete", app.admin_delete))
+            admin_app.add_handler(MessageHandler(
+                filters.TEXT | filters.PHOTO, app.admin_message_handler
+            ))
+            admin_app.add_handler(CallbackQueryHandler(app.admin_callback_handler))
+            
+            # Run admin bot
+            admin_app.run_polling(drop_pending_updates=True)
+            
+        except Exception as e:
+            logger.error(f"Admin bot error: {e}")
+    
+    # Start both bots in separate threads
+    main_thread = threading.Thread(target=run_main_bot, daemon=True)
+    admin_thread = threading.Thread(target=run_admin_bot, daemon=True)
+    
+    main_thread.start()
+    time.sleep(2)  # Small delay between starts
+    admin_thread.start()
+    
+    logger.info("Both bots started successfully!")
+    
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(60)  # Check every minute
+            if not main_thread.is_alive():
+                logger.error("Main bot thread died")
+                break
+            if not admin_thread.is_alive():
+                logger.error("Admin bot thread died")
+                break
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal")
 
 
 if __name__ == "__main__":
