@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import threading
 from typing import Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -242,3 +244,43 @@ class AdminBot:
             await update.effective_message.reply_text(f"✅ Promo {promo_id} deleted")
         else:
             await update.effective_message.reply_text(f"❌ Failed to delete promo {promo_id}")
+
+    def handle_webhook_request(self, request, admin_app):
+        """Handle webhook request for admin bot"""
+        try:
+            # Basic request validation
+            if not request.is_json:
+                logger.warning("Admin webhook: Request is not JSON")
+                return "Bad Request", 400
+            
+            update_data = request.get_json()
+            if not update_data:
+                logger.warning("Admin webhook: Empty request body")
+                return "Bad Request", 400
+            
+            # Process update through admin application in background
+            self._process_update_async(update_data, admin_app)
+            
+            return "OK", 200
+            
+        except Exception as e:
+            logger.error(f"Admin webhook error: {e}")
+            return "OK", 200  # Always return 200 to prevent Telegram retries
+    
+    def _process_update_async(self, update_data, admin_app):
+        """Process update in background thread"""
+        def process():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                update = Update.de_json(update_data, admin_app.bot)
+                if update:
+                    loop.run_until_complete(admin_app.process_update(update))
+                
+                loop.close()
+            except Exception as e:
+                logger.error(f"Error processing admin bot update: {e}")
+        
+        thread = threading.Thread(target=process, daemon=True)
+        thread.start()

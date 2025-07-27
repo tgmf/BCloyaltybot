@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import threading
 from datetime import datetime
 from typing import Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
@@ -135,3 +137,43 @@ class MainBot:
             if promo["id"] == promo_id and promo["link"]:
                 await query.message.reply_text(f"🔗 Visit: {promo['link']}")
                 break
+
+    def handle_webhook_request(self, request, main_app):
+        """Handle webhook request for main bot"""
+        try:
+            # Basic request validation
+            if not request.is_json:
+                logger.warning("Main webhook: Request is not JSON")
+                return "Bad Request", 400
+            
+            update_data = request.get_json()
+            if not update_data:
+                logger.warning("Main webhook: Empty request body")
+                return "Bad Request", 400
+            
+            # Process update through main application in background
+            self._process_update_async(update_data, main_app)
+            
+            return "OK", 200
+            
+        except Exception as e:
+            logger.error(f"Main webhook error: {e}")
+            return "OK", 200  # Always return 200 to prevent Telegram retries
+    
+    def _process_update_async(self, update_data, main_app):
+        """Process update in background thread"""
+        def process():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                update = Update.de_json(update_data, main_app.bot)
+                if update:
+                    loop.run_until_complete(main_app.process_update(update))
+                
+                loop.close()
+            except Exception as e:
+                logger.error(f"Error processing main bot update: {e}")
+        
+        thread = threading.Thread(target=process, daemon=True)
+        thread.start()
