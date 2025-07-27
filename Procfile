@@ -1,1 +1,1 @@
-web: python bc_loyalty_bot.py
+web: gunicorn bc_loyalty_bot:flask_app --bind 0.0.0.0:$PORT

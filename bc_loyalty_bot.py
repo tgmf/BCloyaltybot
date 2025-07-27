@@ -572,18 +572,21 @@ class BotApplication:
             await update.effective_message.reply_text(f"❌ Failed to delete promo {promo_id}")
 
 
-def main():
-    """Run both bots using webhooks with Flask"""
+# Global Flask app for Gunicorn
+flask_app = None
+
+def create_app():
+    """Create and configure Flask app"""
+    global flask_app
     
     # Check environment variables
     main_token = os.getenv("MAIN_BOT_TOKEN")
     admin_token = os.getenv("ADMIN_BOT_TOKEN")
-    port = int(os.getenv("PORT", 5000))
-    app_name = os.getenv("HEROKU_APP_NAME", "your-app")
+    app_name = os.getenv("HEROKU_APP_NAME", "bc-loyalty-bot")
     
     if not main_token or not admin_token:
         logger.error("Bot tokens not provided")
-        return
+        return None
     
     # Create Flask app
     flask_app = Flask(__name__)
@@ -677,15 +680,27 @@ def main():
         """Status endpoint"""
         return {
             "status": "running",
-            "main_bot": "initialized",
+            "main_bot": "initialized", 
             "admin_bot": "initialized"
         }
     
-    logger.info(f"Starting webhook server on port {port}...")
-    
-    # Run Flask app
-    flask_app.run(host="0.0.0.0", port=port, debug=False)
+    logger.info("Flask app created successfully")
+    return flask_app
 
+
+def main():
+    """Run Flask app with Gunicorn in production"""
+    global flask_app
+    flask_app = create_app()
+    
+    if flask_app:
+        port = int(os.getenv("PORT", 5000))
+        logger.info(f"Starting Flask development server on port {port}...")
+        flask_app.run(host="0.0.0.0", port=port, debug=False)
+
+
+# Create app for Gunicorn
+flask_app = create_app()
 
 if __name__ == "__main__":
     main()
