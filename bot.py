@@ -111,17 +111,15 @@ class LoyaltyBot:
         keyboard = []
         nav_buttons = []
         
-        # Previous button
-        if index > 0:
-            nav_buttons.append(InlineKeyboardButton("← Previous", callback_data="prev"))
+        # Always show Previous and Next buttons (since we loop)
+        nav_buttons.append(InlineKeyboardButton("← Previous", callback_data="prev"))
         
         # Visit link button
         if promo["link"]:
             nav_buttons.append(InlineKeyboardButton("🔗 Visit Link", callback_data=f"visit_{promo['id']}"))
         
-        # Next button  
-        if index < len(active_promos) - 1:
-            nav_buttons.append(InlineKeyboardButton("Next →", callback_data="next"))
+        # Always show Next button (since we loop)
+        nav_buttons.append(InlineKeyboardButton("Next →", callback_data="next"))
         
         if nav_buttons:
             keyboard.append(nav_buttons)
@@ -159,7 +157,7 @@ class LoyaltyBot:
             logger.error(f"Failed to show promo: {e}")
     
     async def navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle navigation buttons (prev/next)"""
+        """Handle navigation buttons (prev/next) with looping"""
         query = update.callback_query
         await query.answer()
         
@@ -169,10 +167,19 @@ class LoyaltyBot:
         current_index = session.current_index
         active_promos = self.content_manager.get_active_promos()
         
-        if query.data == "prev" and current_index > 0:
-            await self.show_promo(update, context, user_id, current_index - 1)
-        elif query.data == "next" and current_index < len(active_promos) - 1:
-            await self.show_promo(update, context, user_id, current_index + 1)
+        if not active_promos:
+            return
+        
+        total_promos = len(active_promos)
+        
+        if query.data == "prev":
+            # Loop to last promo if at first promo
+            new_index = (current_index - 1) % total_promos
+            await self.show_promo(update, context, user_id, new_index)
+        elif query.data == "next":
+            # Loop to first promo if at last promo
+            new_index = (current_index + 1) % total_promos
+            await self.show_promo(update, context, user_id, new_index)
     
     async def visit_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle visit link button"""
