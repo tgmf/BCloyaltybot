@@ -4,11 +4,11 @@ import asyncio
 from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-from telegram.error import RetryAfter, TelegramError
 
 from content_manager import ContentManager
 from main_bot import MainBot
 from admin_bot import AdminBot
+from webhook_manager import WebhookManager
 
 # Enable logging
 logging.basicConfig(
@@ -22,45 +22,11 @@ flask_app = None
 main_app = None
 admin_app = None
 content_manager = None
-webhooks_initialized = False
-
-async def initialize_webhooks():
-    """Initialize webhooks with proper delays"""
-    global webhooks_initialized, main_app, admin_app
-    
-    if webhooks_initialized:
-        return True
-        
-    try:
-        app_name = os.getenv("HEROKU_APP_NAME", "bc-loyalty-bot")
-        app_url = f"https://{app_name}.herokuapp.com"
-        
-        logger.info("Starting webhook initialization...")
-        
-        # Initialize main bot webhook
-        main_webhook_url = f"{app_url}/webhook/main"
-        await main_app.bot.set_webhook(main_webhook_url)
-        logger.info(f"Main bot webhook set: {main_webhook_url}")
-        
-        # Wait between webhook calls to avoid rate limiting
-        await asyncio.sleep(3)
-        
-        # Initialize admin bot webhook
-        admin_webhook_url = f"{app_url}/webhook/admin"
-        await admin_app.bot.set_webhook(admin_webhook_url)
-        logger.info(f"Admin bot webhook set: {admin_webhook_url}")
-        
-        webhooks_initialized = True
-        logger.info("All webhooks initialized successfully")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize webhooks: {e}")
-        return False
+webhook_manager = None
 
 def create_app():
     """Create and configure Flask app"""
-    global flask_app, main_app, admin_app, content_manager
+    global flask_app, main_app, admin_app, content_manager, webhook_manager
     
     # Check environment variables
     main_token = os.getenv("MAIN_BOT_TOKEN")
@@ -73,7 +39,7 @@ def create_app():
     # Create Flask app
     flask_app = Flask(__name__)
     
-    # Shared content manager - assign to global variable
+    # Shared content manager
     content_manager = ContentManager(
         os.getenv("GOOGLE_SHEETS_CREDENTIALS"), 
         os.getenv("GOOGLE_SPREADSHEET_ID")
@@ -83,9 +49,12 @@ def create_app():
     main_bot = MainBot(content_manager)
     admin_bot = AdminBot(content_manager)
     
-    # Create bot applications - assign to global variables
+    # Create bot applications
     main_app = Application.builder().token(main_token).build()
     admin_app = Application.builder().token(admin_token).build()
+    
+    # Create webhook manager
+    webhook_manager = WebhookManager(main_app, admin_app)
     
     # Add main bot handlers
     main_app.add_handler(CommandHandler("start", main_bot.start))
@@ -100,7 +69,7 @@ def create_app():
     admin_app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, admin_bot.message_handler))
     admin_app.add_handler(CallbackQueryHandler(admin_bot.callback_handler))
     
-    # Initialize applications (without webhooks)
+    # Initialize applications and check webhooks at startup
     async def init_apps():
         try:
             logger.info("Initializing bot applications...")
@@ -108,12 +77,21 @@ def create_app():
             logger.info("Main app initialized")
             await admin_app.initialize()
             logger.info("Admin app initialized")
-            logger.info("Bot applications ready (webhooks will be set on first request)")
+            
+            # Check and configure webhooks at startup
+            logger.info("Checking webhook configuration at startup...")
+            webhook_success = await webhook_manager.check_and_initialize_webhooks()
+            if webhook_success:
+                logger.info("Webhook configuration completed successfully")
+            else:
+                logger.warning("Webhook configuration failed, but continuing startup")
+            
+            logger.info("Bot applications ready")
         except Exception as e:
             logger.error(f"Failed to initialize apps: {e}")
             raise
     
-    # Run basic initialization
+    # Run initialization
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -124,86 +102,38 @@ def create_app():
         logger.error(f"Critical error during initialization: {e}")
         return None
     
-    # Routes - now they can access the global variables
+    # Routes - delegate to WebhookManager
     @flask_app.route("/webhook/main", methods=["POST"])
     def main_webhook():
-        """Handle main bot webhook"""
-        global webhooks_initialized, main_app
-        try:
-            # Lazy webhook initialization on first request
-            if not webhooks_initialized:
-                logger.info("Initializing webhooks on first request...")
-                asyncio.run(initialize_webhooks())
-            
-            data = request.get_json()
-            if not data:
-                return "OK"
-                
-            update = Update.de_json(data, main_app.bot)
-            
-            # Process update
-            asyncio.run(main_app.process_update(update))
-            
-            return "OK"
-        except Exception as e:
-            logger.error(f"Main webhook error: {e}")
-            return "ERROR", 500
+        return webhook_manager.handle_main_webhook()
     
     @flask_app.route("/webhook/admin", methods=["POST"])
     def admin_webhook():
-        """Handle admin bot webhook"""
-        global webhooks_initialized, admin_app
-        try:
-            # Lazy webhook initialization on first request
-            if not webhooks_initialized:
-                logger.info("Initializing webhooks on first request...")
-                asyncio.run(initialize_webhooks())
-            
-            data = request.get_json()
-            if not data:
-                return "OK"
-                
-            update = Update.de_json(data, admin_app.bot)
-            
-            # Process update
-            asyncio.run(admin_app.process_update(update))
-            
-            return "OK"
-        except Exception as e:
-            logger.error(f"Admin webhook error: {e}")
-            return "ERROR", 500
+        return webhook_manager.handle_admin_webhook()
     
+    @flask_app.route("/webhook-health", methods=["GET"])
+    def webhook_health():
+        return webhook_manager.handle_webhook_health()
+
     @flask_app.route("/init-webhooks", methods=["POST"])
     def manual_init_webhooks():
-        """Manual webhook initialization endpoint"""
-        try:
-            success = asyncio.run(initialize_webhooks())
-            
-            if success:
-                return jsonify({"status": "success", "message": "Webhooks initialized"})
-            else:
-                return jsonify({"status": "error", "message": "Failed to initialize webhooks"}), 500
-        except Exception as e:
-            logger.error(f"Manual webhook init error: {e}")
-            return jsonify({"status": "error", "message": str(e)}), 500
+        return webhook_manager.handle_manual_init()
     
     @flask_app.route("/", methods=["GET"])
     def health_check():
-        """Health check endpoint"""
         return "BC Loyalty Bot is running!"
     
     @flask_app.route("/status", methods=["GET"])
     def status():
-        """Status endpoint"""
-        global webhooks_initialized, main_app, admin_app, content_manager
         try:
+            webhook_status = webhook_manager.get_status()
             return {
                 "status": "running",
-                "webhooks_initialized": webhooks_initialized,
                 "main_bot": f"@{main_app.bot.username}" if main_app and hasattr(main_app.bot, "username") else "unknown",
                 "admin_bot": f"@{admin_app.bot.username}" if admin_app and hasattr(admin_app.bot, "username") else "unknown",
                 "active_promos": len(content_manager.get_active_promos()) if content_manager else 0,
-                "total_promos": len(content_manager.get_all_promos()) if content_manager else 0
+                "total_promos": len(content_manager.get_all_promos()) if content_manager else 0,
+                **webhook_status
             }
         except Exception as e:
             logger.error(f"Status endpoint error: {e}")
