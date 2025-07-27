@@ -253,6 +253,7 @@ class BotApplication:
     async def main_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Main bot start command"""
         user_id = update.effective_user.id
+        logger.info(f"User {user_id} started main bot")
         
         # Initialize user session
         self.user_sessions[user_id] = UserSession()
@@ -262,12 +263,15 @@ class BotApplication:
         
         # Get active promos
         active_promos = self.content_manager.get_active_promos()
+        logger.info(f"Found {len(active_promos)} active promos")
         
         if not active_promos:
             await update.message.reply_text("🎉 Welcome! No promos available at the moment.")
+            logger.warning("No active promos found")
             return
         
         # Show first promo
+        logger.info(f"Showing first promo to user {user_id}")
         await self.show_promo(update, context, user_id, 0)
 
     async def show_promo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, index: int):
@@ -367,16 +371,25 @@ class BotApplication:
     async def admin_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin bot start command"""
         user = update.effective_user
-        phone = user.username  # This is a placeholder - in real implementation you'd need phone verification
+        user_id = str(user.id)
+        username = user.username or ""
         
         # Refresh auth cache
         await self.content_manager.refresh_cache()
         
-        # Check authorization (placeholder)
-        if not self.content_manager.is_authorized(phone or ""):
+        # Check authorization by user_id or username
+        is_authorized = False
+        for phone, auth_data in self.content_manager.auth_cache.items():
+            if auth_data.get("user_id") == user_id or auth_data.get("username") == username:
+                is_authorized = True
+                break
+        
+        if not is_authorized:
             await update.message.reply_text(
-                "🔐 Please provide your phone number for authorization.\n"
-                "Contact administrator to get access."
+                "🔐 Access denied. Contact administrator to get authorized.\n"
+                f"Your User ID: `{user_id}`\n"
+                f"Your Username: @{username}" if username else f"Your Username: Not set",
+                parse_mode="Markdown"
             )
             return
         
@@ -600,17 +613,18 @@ async def main():
     # Run both bots
     logger.info("Starting both bots...")
     
-    # Start both applications
-    await main_app.initialize()
-    await admin_app.initialize()
-    
-    # Start polling for both
-    await asyncio.gather(
-        main_app.start(),
-        admin_app.start(),
-        main_app.updater.start_polling(),
-        admin_app.updater.start_polling()
-    )
+    try:
+        # Run both applications concurrently
+        await asyncio.gather(
+            main_app.run_polling(drop_pending_updates=True),
+            admin_app.run_polling(drop_pending_updates=True)
+        )
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal")
+    except Exception as e:
+        logger.error(f"Error running bots: {e}")
+    finally:
+        logger.info("Shutting down...")
 
 
 if __name__ == "__main__":
