@@ -128,7 +128,7 @@ class MainBot:
                 break
 
     def handle_webhook_request(self, request, main_app):
-        """Handle webhook request for main bot"""
+        """Handle webhook request for main bot - TRUE direct processing"""
         try:
             if not request.is_json:
                 return "Bad Request", 400
@@ -137,12 +137,16 @@ class MainBot:
             if not update_data:
                 return "Bad Request", 400
             
-            # Let the main_app handle this in its own context
-            # Don't create new threads or event loops
+            # Process directly - no queuing, no threading
             update = Update.de_json(update_data, main_app.bot)
             if update:
-                # Queue the update for processing
-                main_app.update_queue.put(update)
+                # Create event loop and process immediately
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(main_app.process_update(update))
+                finally:
+                    loop.close()
             
             return "OK", 200
             
