@@ -133,10 +133,7 @@ def create_app():
             # Lazy webhook initialization on first request
             if not webhooks_initialized:
                 logger.info("Initializing webhooks on first request...")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(initialize_webhooks())
-                loop.close()
+                asyncio.run(initialize_webhooks())
             
             data = request.get_json()
             if not data:
@@ -145,12 +142,7 @@ def create_app():
             update = Update.de_json(data, main_app.bot)
             
             # Process update
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(main_app.process_update(update))
-            finally:
-                loop.close()
+            asyncio.run(main_app.process_update(update))
             
             return "OK"
         except Exception as e:
@@ -165,10 +157,7 @@ def create_app():
             # Lazy webhook initialization on first request
             if not webhooks_initialized:
                 logger.info("Initializing webhooks on first request...")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(initialize_webhooks())
-                loop.close()
+                asyncio.run(initialize_webhooks())
             
             data = request.get_json()
             if not data:
@@ -177,12 +166,7 @@ def create_app():
             update = Update.de_json(data, admin_app.bot)
             
             # Process update
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(admin_app.process_update(update))
-            finally:
-                loop.close()
+            asyncio.run(admin_app.process_update(update))
             
             return "OK"
         except Exception as e:
@@ -193,10 +177,7 @@ def create_app():
     def manual_init_webhooks():
         """Manual webhook initialization endpoint"""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            success = loop.run_until_complete(initialize_webhooks())
-            loop.close()
+            success = asyncio.run(initialize_webhooks())
             
             if success:
                 return jsonify({"status": "success", "message": "Webhooks initialized"})
