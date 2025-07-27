@@ -137,6 +137,17 @@ def register_bot_handlers():
     """Register all bot handlers with their respective applications"""
     logger.info("Registering bot handlers...")
     
+    # Add error handlers first
+    async def error_handler(update, context):
+        """Handle errors in bot processing"""
+        logger.error(f"Bot error: {context.error}")
+        if update:
+            logger.error(f"Update that caused error: {update}")
+        # Don't re-raise the error to prevent crashes
+    
+    main_app.add_error_handler(error_handler)
+    admin_app.add_error_handler(error_handler)
+    
     # Main bot handlers
     main_app.add_handler(CommandHandler("start", main_bot.start))
     main_app.add_handler(CallbackQueryHandler(main_bot.navigation, pattern="^(prev|next)$"))
