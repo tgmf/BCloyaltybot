@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from telegram.ext import Application
 
 from bot import create_application
@@ -38,7 +37,7 @@ def validate_environment():
     if not os.getenv("GOOGLE_SHEETS_CREDENTIALS"):
         logger.warning("GOOGLE_SHEETS_CREDENTIALS not set - Google Sheets integration will not work")
 
-async def main():
+def main():
     """Main application entry point"""
     try:
         # Validate environment
@@ -53,10 +52,6 @@ async def main():
             logger.error("Failed to create bot application")
             return
         
-        # Initialize application
-        await application.initialize()
-        logger.info("Bot application initialized")
-        
         # Determine if we're running locally or on Heroku
         port = os.getenv("PORT")
         
@@ -70,8 +65,8 @@ async def main():
             
             logger.info(f"Setting webhook URL: {webhook_url}")
             
-            # Start webhook
-            await application.run_webhook(
+            # Start webhook - PTB handles the event loop internally
+            application.run_webhook(
                 listen="0.0.0.0",
                 port=int(port),
                 webhook_url=webhook_url,
@@ -80,7 +75,7 @@ async def main():
         else:
             # Development mode - run polling
             logger.info("Running in polling mode (development)")
-            await application.run_polling(
+            application.run_polling(
                 allowed_updates=["message", "callback_query"]
             )
     
@@ -88,9 +83,5 @@ async def main():
         logger.error(f"Application error: {e}")
         raise
 
-def run():
-    """Entry point for production deployment"""
-    asyncio.run(main())
-
 if __name__ == "__main__":
-    run()
+    main()
