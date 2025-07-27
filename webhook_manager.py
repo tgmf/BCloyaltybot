@@ -1,8 +1,11 @@
 import logging
 import asyncio
 import os
-import re
+import json
 from typing import Optional
+from flask import jsonify
+from telegram import Update
+from telegram.error import TelegramError
 
 logger = logging.getLogger(__name__)
 
@@ -132,3 +135,206 @@ class WebhookManager:
             "webhooks_initialized": self.webhooks_initialized,
             "app_url": self._app_url
         }
+
+    # ===== FLASK ROUTE HANDLERS =====
+    
+    def handle_main_webhook(self, request):
+        """Handle main bot webhook request from Flask route"""
+        try:
+            # Validate and parse request
+            update_data = self._validate_and_parse_request(request)
+            
+            # Log incoming update (for debugging)
+            logger.debug(f"Main bot update received: {json.dumps(update_data, indent=2)}")
+            
+            # Create async task for processing
+            self._run_async_task(self._process_main_update(update_data))
+            
+            # Return immediate response to Telegram
+            return "OK", 200
+            
+        except ValueError as e:
+            logger.warning(f"Main webhook validation error: {e}")
+            return "Bad Request", 400
+        except Exception as e:
+            logger.error(f"Main webhook error: {e}")
+            return "OK", 200  # Return 200 to prevent Telegram retries
+
+    def handle_admin_webhook(self, request):
+        """Handle admin bot webhook request from Flask route"""
+        try:
+            # Validate and parse request
+            update_data = self._validate_and_parse_request(request)
+            
+            # Log incoming update (for debugging)
+            logger.debug(f"Admin bot update received: {json.dumps(update_data, indent=2)}")
+            
+            # Create async task for processing
+            self._run_async_task(self._process_admin_update(update_data))
+            
+            # Return immediate response to Telegram
+            return "OK", 200
+            
+        except ValueError as e:
+            logger.warning(f"Admin webhook validation error: {e}")
+            return "Bad Request", 400
+        except Exception as e:
+            logger.error(f"Admin webhook error: {e}")
+            return "OK", 200  # Return 200 to prevent Telegram retries
+
+    def handle_webhook_health(self):
+        """Handle webhook health check request from Flask route"""
+        try:
+            app_url = self._app_url or "not_configured"
+            
+            return jsonify({
+                "status": "healthy",
+                "webhooks_active": self.webhooks_initialized,
+                "app_url": app_url,
+                "endpoints": {
+                    "main_webhook": f"{app_url}/webhook/main" if app_url != "not_configured" else None,
+                    "admin_webhook": f"{app_url}/webhook/admin" if app_url != "not_configured" else None
+                },
+                "message": "Webhook system is operational"
+            })
+            
+        except Exception as e:
+            logger.error(f"Webhook health check error: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
+
+    def handle_manual_init(self):
+        """Handle manual webhook initialization request from Flask route"""
+        try:
+            # Run async webhook reinitialization
+            success = self._run_async_task_sync(self.force_reinitialize())
+            
+            if success:
+                app_url = self.get_app_url()
+                return jsonify({
+                    "status": "success",
+                    "message": "Webhooks reinitialized successfully",
+                    "webhooks": {
+                        "main_webhook": f"{app_url}/webhook/main",
+                        "admin_webhook": f"{app_url}/webhook/admin"
+                    }
+                })
+            else:
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to reinitialize webhooks"
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Manual webhook init error: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 500
+
+    # ===== PRIVATE HELPER METHODS =====
+
+    def _validate_and_parse_request(self, request):
+        """Validate and parse webhook request"""
+        if not request.is_json:
+            raise ValueError("Request must be JSON")
+            
+        if request.content_length and request.content_length > 10 * 1024 * 1024:  # 10MB limit
+            raise ValueError("Request too large")
+            
+        update_data = request.get_json()
+        if not update_data:
+            raise ValueError("Empty request body")
+            
+        # Basic validation - ensure it looks like a Telegram update
+        if not isinstance(update_data, dict):
+            raise ValueError("Request body must be a JSON object")
+            
+        # Check for at least one expected field
+        expected_fields = ["update_id", "message", "callback_query", "inline_query"]
+        if not any(field in update_data for field in expected_fields):
+            raise ValueError("Request does not look like a Telegram update")
+            
+        return update_data
+
+    async def _process_main_update(self, update_data):
+        """Process main bot update asynchronously"""
+        try:
+            # Create Telegram Update object
+            update = Update.de_json(update_data, self.main_app.bot)
+            if not update:
+                logger.warning("Failed to create Update object from main bot data")
+                return
+            
+            # Process update through main application
+            logger.debug(f"Processing main bot update {update.update_id}")
+            await self.main_app.process_update(update)
+            logger.debug(f"Main bot update {update.update_id} processed successfully")
+            
+        except TelegramError as e:
+            logger.error(f"Telegram error processing main update: {e}")
+        except Exception as e:
+            logger.error(f"Error processing main bot update: {e}")
+
+    async def _process_admin_update(self, update_data):
+        """Process admin bot update asynchronously"""
+        try:
+            # Create Telegram Update object
+            update = Update.de_json(update_data, self.admin_app.bot)
+            if not update:
+                logger.warning("Failed to create Update object from admin bot data")
+                return
+            
+            # Process update through admin application
+            logger.debug(f"Processing admin bot update {update.update_id}")
+            await self.admin_app.process_update(update)
+            logger.debug(f"Admin bot update {update.update_id} processed successfully")
+            
+        except TelegramError as e:
+            logger.error(f"Telegram error processing admin update: {e}")
+        except Exception as e:
+            logger.error(f"Error processing admin bot update: {e}")
+
+    def _run_async_task(self, coro):
+        """Run async coroutine from sync context (fire-and-forget)"""
+        try:
+            # Try to get the current event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, create a task
+                asyncio.create_task(coro)
+                logger.debug("Created async task in existing event loop")
+            except RuntimeError:
+                # No running loop, create a new one in a thread
+                import threading
+                def run_in_thread():
+                    asyncio.run(coro)
+                
+                thread = threading.Thread(target=run_in_thread, daemon=True)
+                thread.start()
+                logger.debug("Created async task in new thread")
+                
+        except Exception as e:
+            logger.error(f"Failed to run async task: {e}")
+
+    def _run_async_task_sync(self, coro):
+        """Run async coroutine from sync context and wait for result"""
+        try:
+            # Try to get the current event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If loop is running, we can't use run_until_complete
+                # Create a task and return a future (for endpoints that need results)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    return future.result(timeout=30)  # 30 second timeout
+            except RuntimeError:
+                # No running loop, safe to create one
+                return asyncio.run(coro)
+                
+        except Exception as e:
+            logger.error(f"Failed to run async task synchronously: {e}")
+            return False
