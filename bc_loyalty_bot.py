@@ -12,6 +12,7 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from telegram.error import TelegramError
+from flask import Flask, request
 
 # Enable logging
 logging.basicConfig(
@@ -219,37 +220,6 @@ class BotApplication:
         
         # Pending messages for admin bot
         self.pending_messages: Dict[int, Dict] = {}
-
-    async def setup_applications(self):
-        """Setup both bot applications"""
-        # Initialize content manager here (inside async context)
-        self.content_manager = ContentManager(self.google_creds, self.spreadsheet_id)
-        
-        # Main bot application
-        self.main_app = Application.builder().token(self.main_bot_token).build()
-        
-        # Main bot handlers
-        self.main_app.add_handler(CommandHandler("start", self.main_start))
-        self.main_app.add_handler(CallbackQueryHandler(self.main_navigation, pattern="^(prev|next)$"))
-        self.main_app.add_handler(CallbackQueryHandler(self.main_visit_link, pattern="^visit_"))
-        
-        # Admin bot application  
-        self.admin_app = Application.builder().token(self.admin_bot_token).build()
-        
-        # Admin bot handlers
-        self.admin_app.add_handler(CommandHandler("start", self.admin_start))
-        self.admin_app.add_handler(CommandHandler("list", self.admin_list))
-        self.admin_app.add_handler(CommandHandler("toggle", self.admin_toggle))
-        self.admin_app.add_handler(CommandHandler("delete", self.admin_delete))
-        self.admin_app.add_handler(MessageHandler(
-            filters.TEXT | filters.PHOTO, self.admin_message_handler
-        ))
-        self.admin_app.add_handler(CallbackQueryHandler(self.admin_callback_handler))
-        
-        # Initial cache refresh
-        await self.content_manager.refresh_cache(force=True)
-        
-        return self.main_app, self.admin_app
 
     # ===== MAIN BOT HANDLERS =====
     
@@ -603,17 +573,20 @@ class BotApplication:
 
 
 def main():
-    """Run both bots using threading"""
-    import threading
-    import time
+    """Run both bots using webhooks with Flask"""
     
     # Check environment variables
     main_token = os.getenv("MAIN_BOT_TOKEN")
     admin_token = os.getenv("ADMIN_BOT_TOKEN")
+    port = int(os.getenv("PORT", 5000))
+    app_name = os.getenv("HEROKU_APP_NAME", "your-app")
     
     if not main_token or not admin_token:
         logger.error("Bot tokens not provided")
         return
+    
+    # Create Flask app
+    flask_app = Flask(__name__)
     
     # Shared content manager
     content_manager = ContentManager(
@@ -621,79 +594,95 @@ def main():
         os.getenv("GOOGLE_SPREADSHEET_ID")
     )
     
-    def run_main_bot():
-        """Run main bot in separate thread"""
+    # Create bot app instances
+    main_bot_handler = BotApplication()
+    main_bot_handler.content_manager = content_manager
+    
+    admin_bot_handler = BotApplication()
+    admin_bot_handler.content_manager = content_manager
+    
+    # Create bot applications
+    main_app = Application.builder().token(main_token).build()
+    admin_app = Application.builder().token(admin_token).build()
+    
+    # Add handlers
+    main_app.add_handler(CommandHandler("start", main_bot_handler.main_start))
+    main_app.add_handler(CallbackQueryHandler(main_bot_handler.main_navigation, pattern="^(prev|next)$"))
+    main_app.add_handler(CallbackQueryHandler(main_bot_handler.main_visit_link, pattern="^visit_"))
+    
+    admin_app.add_handler(CommandHandler("start", admin_bot_handler.admin_start))
+    admin_app.add_handler(CommandHandler("list", admin_bot_handler.admin_list))
+    admin_app.add_handler(CommandHandler("toggle", admin_bot_handler.admin_toggle))
+    admin_app.add_handler(CommandHandler("delete", admin_bot_handler.admin_delete))
+    admin_app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, admin_bot_handler.admin_message_handler))
+    admin_app.add_handler(CallbackQueryHandler(admin_bot_handler.admin_callback_handler))
+    
+    # Initialize applications and set webhooks
+    async def init_apps():
+        await main_app.initialize()
+        await admin_app.initialize()
+        
+        # Set webhooks
+        app_url = f"https://{app_name}.herokuapp.com"
+        await main_app.bot.set_webhook(f"{app_url}/webhook/main")
+        await admin_app.bot.set_webhook(f"{app_url}/webhook/admin")
+        
+        logger.info(f"Webhooks set for {app_url}")
+    
+    # Run initialization
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(init_apps())
+    
+    # Webhook routes
+    @flask_app.route("/webhook/main", methods=["POST"])
+    def main_webhook():
+        """Handle main bot webhook"""
         try:
-            logger.info("Starting main bot...")
-            
-            # Create main bot application
-            main_app = Application.builder().token(main_token).build()
-            
-            # Create bot app instance for main bot
-            app = BotApplication()
-            app.content_manager = content_manager
-            
-            # Add main bot handlers
-            main_app.add_handler(CommandHandler("start", app.main_start))
-            main_app.add_handler(CallbackQueryHandler(app.main_navigation, pattern="^(prev|next)$"))
-            main_app.add_handler(CallbackQueryHandler(app.main_visit_link, pattern="^visit_"))
-            
-            # Run main bot
-            main_app.run_polling(drop_pending_updates=True)
-            
+            update = Update.de_json(request.get_json(), main_app.bot)
+            # Run async handler in event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(main_app.process_update(update))
+            loop.close()
+            return "OK"
         except Exception as e:
-            logger.error(f"Main bot error: {e}")
+            logger.error(f"Main webhook error: {e}")
+            return "ERROR", 500
     
-    def run_admin_bot():
-        """Run admin bot in separate thread"""
+    @flask_app.route("/webhook/admin", methods=["POST"])
+    def admin_webhook():
+        """Handle admin bot webhook"""
         try:
-            logger.info("Starting admin bot...")
-            
-            # Create admin bot application
-            admin_app = Application.builder().token(admin_token).build()
-            
-            # Create bot app instance for admin bot
-            app = BotApplication()
-            app.content_manager = content_manager
-            
-            # Add admin bot handlers
-            admin_app.add_handler(CommandHandler("start", app.admin_start))
-            admin_app.add_handler(CommandHandler("list", app.admin_list))
-            admin_app.add_handler(CommandHandler("toggle", app.admin_toggle))
-            admin_app.add_handler(CommandHandler("delete", app.admin_delete))
-            admin_app.add_handler(MessageHandler(
-                filters.TEXT | filters.PHOTO, app.admin_message_handler
-            ))
-            admin_app.add_handler(CallbackQueryHandler(app.admin_callback_handler))
-            
-            # Run admin bot
-            admin_app.run_polling(drop_pending_updates=True)
-            
+            update = Update.de_json(request.get_json(), admin_app.bot)
+            # Run async handler in event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(admin_app.process_update(update))
+            loop.close()
+            return "OK"
         except Exception as e:
-            logger.error(f"Admin bot error: {e}")
+            logger.error(f"Admin webhook error: {e}")
+            return "ERROR", 500
     
-    # Start both bots in separate threads
-    main_thread = threading.Thread(target=run_main_bot, daemon=True)
-    admin_thread = threading.Thread(target=run_admin_bot, daemon=True)
+    @flask_app.route("/", methods=["GET"])
+    def health_check():
+        """Health check endpoint"""
+        return "BC Loyalty Bot is running!"
     
-    main_thread.start()
-    time.sleep(2)  # Small delay between starts
-    admin_thread.start()
+    @flask_app.route("/status", methods=["GET"])
+    def status():
+        """Status endpoint"""
+        return {
+            "status": "running",
+            "main_bot": "initialized",
+            "admin_bot": "initialized"
+        }
     
-    logger.info("Both bots started successfully!")
+    logger.info(f"Starting webhook server on port {port}...")
     
-    # Keep main thread alive
-    try:
-        while True:
-            time.sleep(60)  # Check every minute
-            if not main_thread.is_alive():
-                logger.error("Main bot thread died")
-                break
-            if not admin_thread.is_alive():
-                logger.error("Admin bot thread died")
-                break
-    except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
+    # Run Flask app
+    flask_app.run(host="0.0.0.0", port=port, debug=False)
 
 
 if __name__ == "__main__":
