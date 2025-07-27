@@ -1,9 +1,11 @@
 import logging
 import os
 import asyncio
+import time
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.error import RetryAfter, TelegramError
 
 from content_manager import ContentManager
 from main_bot import MainBot
@@ -11,13 +13,37 @@ from admin_bot import AdminBot
 
 # Enable logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 # Global Flask app for Gunicorn
 flask_app = None
+
+async def set_webhook_with_retry(bot, webhook_url, max_retries=5):
+    """Set webhook with retry logic for rate limiting"""
+    for attempt in range(max_retries):
+        try:
+            await bot.set_webhook(webhook_url)
+            logger.info(f"Webhook set successfully: {webhook_url}")
+            return True
+        except RetryAfter as e:
+            wait_time = e.retry_after + 1  # Add 1 second buffer
+            logger.warning(f"Rate limited, waiting {wait_time} seconds (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait_time)
+        except TelegramError as e:
+            logger.error(f"Telegram error setting webhook: {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(2)  # Wait 2 seconds before retry
+        except Exception as e:
+            logger.error(f"Unexpected error setting webhook: {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(2)
+    
+    return False
 
 def create_app():
     """Create and configure Flask app"""
@@ -64,22 +90,48 @@ def create_app():
     
     # Initialize applications and set webhooks
     async def init_apps():
-        await main_app.initialize()
-        await admin_app.initialize()
-        
-        # Set webhooks
-        app_url = f"https://{app_name}.herokuapp.com"
-        await main_app.bot.set_webhook(f"{app_url}/webhook/main")
-        await admin_app.bot.set_webhook(f"{app_url}/webhook/admin")
-        
-        logger.info(f"Webhooks set for {app_url}")
-        logger.info(f"Main bot: @{main_app.bot.username}")
-        logger.info(f"Admin bot: @{admin_app.bot.username}")
+        try:
+            logger.info("Initializing bot applications...")
+            
+            # Initialize apps
+            await main_app.initialize()
+            logger.info("Main app initialized")
+            
+            await admin_app.initialize()
+            logger.info("Admin app initialized")
+            
+            # Set webhooks with retry logic and delays
+            app_url = f"https://{app_name}.herokuapp.com"
+            
+            # Set main bot webhook first
+            main_webhook_url = f"{app_url}/webhook/main"
+            await set_webhook_with_retry(main_app.bot, main_webhook_url)
+            
+            # Wait between webhook calls to avoid rate limiting
+            await asyncio.sleep(2)
+            
+            # Set admin bot webhook
+            admin_webhook_url = f"{app_url}/webhook/admin"
+            await set_webhook_with_retry(admin_app.bot, admin_webhook_url)
+            
+            logger.info(f"All webhooks configured for {app_url}")
+            logger.info(f"Main bot: @{main_app.bot.username}")
+            logger.info(f"Admin bot: @{admin_app.bot.username}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize apps: {e}")
+            raise
     
-    # Run initialization
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(init_apps())
+    # Run initialization with proper error handling
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(init_apps())
+        loop.close()
+        logger.info("Bot initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Critical error during initialization: {e}")
+        # Don't raise here - let the app start anyway so it can serve health checks
     
     # Webhook routes
     @flask_app.route("/webhook/main", methods=["POST"])
@@ -87,14 +139,22 @@ def create_app():
         """Handle main bot webhook"""
         try:
             data = request.get_json()
-            logger.info(f"Main webhook received: {data}")
+            if not data:
+                logger.warning("Received empty webhook data")
+                return "OK"
+                
+            logger.debug(f"Main webhook received: {data}")
             update = Update.de_json(data, main_app.bot)
             
             # Run async handler in event loop
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(main_app.process_update(update))
-            loop.close()
+            try:
+                loop.run_until_complete(main_app.process_update(update))
+            except Exception as e:
+                logger.error(f"Error processing main bot update: {e}")
+            finally:
+                loop.close()
             
             return "OK"
         except Exception as e:
@@ -106,14 +166,22 @@ def create_app():
         """Handle admin bot webhook"""
         try:
             data = request.get_json()
-            logger.info(f"Admin webhook received: {data}")
+            if not data:
+                logger.warning("Received empty webhook data")
+                return "OK"
+                
+            logger.debug(f"Admin webhook received: {data}")
             update = Update.de_json(data, admin_app.bot)
             
             # Run async handler in event loop
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(admin_app.process_update(update))
-            loop.close()
+            try:
+                loop.run_until_complete(admin_app.process_update(update))
+            except Exception as e:
+                logger.error(f"Error processing admin bot update: {e}")
+            finally:
+                loop.close()
             
             return "OK"
         except Exception as e:
@@ -128,13 +196,17 @@ def create_app():
     @flask_app.route("/status", methods=["GET"])
     def status():
         """Status endpoint"""
-        return {
-            "status": "running",
-            "main_bot": f"@{main_app.bot.username}" if hasattr(main_app.bot, 'username') else "unknown",
-            "admin_bot": f"@{admin_app.bot.username}" if hasattr(admin_app.bot, 'username') else "unknown",
-            "active_promos": len(content_manager.get_active_promos()),
-            "total_promos": len(content_manager.get_all_promos())
-        }
+        try:
+            return {
+                "status": "running",
+                "main_bot": f"@{main_app.bot.username}" if hasattr(main_app.bot, "username") else "unknown",
+                "admin_bot": f"@{admin_app.bot.username}" if hasattr(admin_app.bot, "username") else "unknown",
+                "active_promos": len(content_manager.get_active_promos()),
+                "total_promos": len(content_manager.get_all_promos())
+            }
+        except Exception as e:
+            logger.error(f"Status endpoint error: {e}")
+            return {"status": "error", "message": str(e)}, 500
     
     logger.info("Flask app created successfully")
     return flask_app
