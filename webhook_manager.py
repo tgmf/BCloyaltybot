@@ -300,21 +300,28 @@ class WebhookManager:
     def _run_async_task(self, coro):
         """Run async coroutine from sync context (fire-and-forget)"""
         try:
-            # Try to get the current event loop
-            try:
-                loop = asyncio.get_running_loop()
-                # If we have a running loop, create a task
-                asyncio.create_task(coro)
-                logger.debug("Created async task in existing event loop")
-            except RuntimeError:
-                # No running loop, create a new one in a thread
-                import threading
-                def run_in_thread():
-                    asyncio.run(coro)
-                
-                thread = threading.Thread(target=run_in_thread, daemon=True)
-                thread.start()
-                logger.debug("Created async task in new thread")
+            # Use asyncio.run_coroutine_threadsafe for better thread safety
+            import threading
+            import concurrent.futures
+            
+            def run_with_new_loop():
+                """Run coroutine in a completely new event loop"""
+                try:
+                    # Create a fresh event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        new_loop.run_until_complete(coro)
+                    finally:
+                        # Properly cleanup the loop
+                        new_loop.close()
+                except Exception as e:
+                    logger.error(f"Error in async task thread: {e}")
+            
+            # Run in a daemon thread to avoid blocking
+            thread = threading.Thread(target=run_with_new_loop, daemon=True)
+            thread.start()
+            logger.debug("Created async task in new thread with isolated event loop")
                 
         except Exception as e:
             logger.error(f"Failed to run async task: {e}")
@@ -322,18 +329,27 @@ class WebhookManager:
     def _run_async_task_sync(self, coro):
         """Run async coroutine from sync context and wait for result"""
         try:
-            # Try to get the current event loop
-            try:
-                loop = asyncio.get_running_loop()
-                # If loop is running, we can't use run_until_complete
-                # Create a task and return a future (for endpoints that need results)
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, coro)
-                    return future.result(timeout=30)  # 30 second timeout
-            except RuntimeError:
-                # No running loop, safe to create one
-                return asyncio.run(coro)
+            import concurrent.futures
+            import threading
+            
+            def run_and_return():
+                """Run coroutine and return result"""
+                try:
+                    # Create isolated event loop
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(coro)
+                    finally:
+                        new_loop.close()
+                except Exception as e:
+                    logger.error(f"Error in sync async task: {e}")
+                    return False
+            
+            # Use ThreadPoolExecutor for better resource management
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(run_and_return)
+                return future.result(timeout=30)  # 30 second timeout
                 
         except Exception as e:
             logger.error(f"Failed to run async task synchronously: {e}")
