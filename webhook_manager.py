@@ -147,10 +147,18 @@ class WebhookManager:
             # Log incoming update (for debugging)
             logger.debug(f"Main bot update received: {json.dumps(update_data, indent=2)}")
             
-            # Create async task for processing
-            self._run_async_task(self._process_main_update(update_data))
+            # Process synchronously with proper error handling
+            try:
+                update = Update.de_json(update_data, self.main_app.bot)
+                if update:
+                    # Create a simple async runner
+                    self._process_update_simple(self.main_app, update)
+                else:
+                    logger.warning("Failed to create Update object from main bot data")
+            except Exception as e:
+                logger.error(f"Error processing main bot update: {e}")
             
-            # Return immediate response to Telegram
+            # Always return success to Telegram
             return "OK", 200
             
         except ValueError as e:
@@ -169,10 +177,18 @@ class WebhookManager:
             # Log incoming update (for debugging)
             logger.debug(f"Admin bot update received: {json.dumps(update_data, indent=2)}")
             
-            # Create async task for processing
-            self._run_async_task(self._process_admin_update(update_data))
+            # Process synchronously with proper error handling
+            try:
+                update = Update.de_json(update_data, self.admin_app.bot)
+                if update:
+                    # Create a simple async runner
+                    self._process_update_simple(self.admin_app, update)
+                else:
+                    logger.warning("Failed to create Update object from admin bot data")
+            except Exception as e:
+                logger.error(f"Error processing admin bot update: {e}")
             
-            # Return immediate response to Telegram
+            # Always return success to Telegram
             return "OK", 200
             
         except ValueError as e:
@@ -259,8 +275,32 @@ class WebhookManager:
             
         return update_data
 
+    def _process_update_simple(self, app, update):
+        """Process update with simple threading approach"""
+        import threading
+        
+        def process():
+            try:
+                # Create a new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Process the update
+                loop.run_until_complete(app.process_update(update))
+                
+                # Clean up
+                loop.close()
+                logger.debug(f"Successfully processed update {update.update_id}")
+                
+            except Exception as e:
+                logger.error(f"Error processing update {update.update_id}: {e}")
+        
+        # Run in background thread
+        thread = threading.Thread(target=process, daemon=True)
+        thread.start()
+
     async def _process_main_update(self, update_data):
-        """Process main bot update asynchronously"""
+        """Process main bot update asynchronously (legacy method)"""
         try:
             # Create Telegram Update object
             update = Update.de_json(update_data, self.main_app.bot)
@@ -279,7 +319,7 @@ class WebhookManager:
             logger.error(f"Error processing main bot update: {e}")
 
     async def _process_admin_update(self, update_data):
-        """Process admin bot update asynchronously"""
+        """Process admin bot update asynchronously (legacy method)"""
         try:
             # Create Telegram Update object
             update = Update.de_json(update_data, self.admin_app.bot)
@@ -300,31 +340,21 @@ class WebhookManager:
     def _run_async_task(self, coro):
         """Run async coroutine from sync context (fire-and-forget)"""
         try:
-            # Use asyncio.run_coroutine_threadsafe for better thread safety
+            # Simple approach: just run in a thread with asyncio.run
             import threading
-            import concurrent.futures
             
-            def run_with_new_loop():
-                """Run coroutine in a completely new event loop"""
+            def run_in_thread():
                 try:
-                    # Create a fresh event loop for this thread
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        new_loop.run_until_complete(coro)
-                    finally:
-                        # Properly cleanup the loop
-                        new_loop.close()
+                    asyncio.run(coro)
                 except Exception as e:
-                    logger.error(f"Error in async task thread: {e}")
+                    logger.error(f"Error in webhook processing thread: {e}")
             
-            # Run in a daemon thread to avoid blocking
-            thread = threading.Thread(target=run_with_new_loop, daemon=True)
+            thread = threading.Thread(target=run_in_thread, daemon=True)
             thread.start()
-            logger.debug("Created async task in new thread with isolated event loop")
+            logger.debug("Started webhook processing in background thread")
                 
         except Exception as e:
-            logger.error(f"Failed to run async task: {e}")
+            logger.error(f"Failed to start async task: {e}")
 
     def _run_async_task_sync(self, coro):
         """Run async coroutine from sync context and wait for result"""
