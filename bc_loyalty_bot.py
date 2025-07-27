@@ -599,7 +599,7 @@ class BotApplication:
             await update.effective_message.reply_text(f"❌ Failed to delete promo {promo_id}")
 
 
-async def main():
+def main():
     """Run both bots"""
     app = BotApplication()
     
@@ -607,25 +607,22 @@ async def main():
         logger.error("Bot tokens not provided")
         return
     
-    # Setup applications
-    main_app, admin_app = await app.setup_applications()
-    
-    # Run both bots
-    logger.info("Starting both bots...")
+    async def setup_and_run():
+        # Setup applications
+        main_app, admin_app = await app.setup_applications()
+        
+        logger.info("Starting main bot...")
+        
+        # Start main bot first
+        await main_app.run_polling(drop_pending_updates=True)
     
     try:
-        # Run both applications concurrently
-        await asyncio.gather(
-            main_app.run_polling(drop_pending_updates=True),
-            admin_app.run_polling(drop_pending_updates=True)
-        )
+        asyncio.run(setup_and_run())
     except KeyboardInterrupt:
         logger.info("Received interrupt signal")
     except Exception as e:
         logger.error(f"Error running bots: {e}")
-    finally:
-        logger.info("Shutting down...")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
