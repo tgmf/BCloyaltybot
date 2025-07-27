@@ -206,6 +206,17 @@ class LoyaltyBot:
                 await query.message.reply_text(f"🔗 Visit: {promo['link']}")
                 break
     
+    async def back_to_promo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle back to promo button"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = update.effective_user.id
+        session = self.get_or_create_session(user_id)
+        
+        # Return to current promo view
+        await self.show_promo(update, context, user_id, session.current_index)
+    
     # ===== ADMIN COMMANDS =====
     
     async def admin_required(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -261,8 +272,10 @@ class LoyaltyBot:
                 display_text = str(promo_text)[:100] if promo_text else "No text"
                 text = f"{status_emoji} *ID {promo_id}* (Order: {promo_order})\n{display_text}..."
                 
+                # Add action buttons for each promo
                 keyboard = [
                     [
+                        InlineKeyboardButton("📝 Edit", callback_data=f"admin_edit_{promo_id}"),
                         InlineKeyboardButton("🔄 Toggle", callback_data=f"admin_toggle_{promo_id}"),
                         InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_delete_{promo_id}")
                     ]
@@ -482,11 +495,6 @@ class LoyaltyBot:
         elif data == "admin_list":
             # Show list of all promos in a new message
             await self.list_promos_inline(update, context)
-        elif data == "back_to_promo":
-            # Return to current promo view
-            user_id = update.effective_user.id
-            session = self.get_or_create_session(user_id)
-            await self.show_promo(update, context, user_id, session.current_index)
         elif data.startswith("confirm_delete_"):
             promo_id = int(data.split("_")[2])
             await self.confirm_delete_promo(update, context, promo_id)
@@ -658,6 +666,9 @@ def create_application():
     application.add_handler(CallbackQueryHandler(bot.navigation, pattern="^(prev|next)$"))
     application.add_handler(CallbackQueryHandler(bot.visit_link, pattern="^visit_"))
     
+    # Back to promo callback (for admins)
+    application.add_handler(CallbackQueryHandler(bot.back_to_promo, pattern="^back_to_promo$"))
+    
     # Admin commands
     application.add_handler(CommandHandler("list", bot.list_promos))
     application.add_handler(CommandHandler("toggle", bot.toggle_command))
@@ -666,6 +677,7 @@ def create_application():
     
     # Admin callbacks
     application.add_handler(CallbackQueryHandler(bot.admin_callback_handler, pattern="^admin_"))
+    application.add_handler(CallbackQueryHandler(bot.admin_callback_handler, pattern="^confirm_delete_"))
     
     # Admin message handler (for creating/editing promos)
     application.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, bot.admin_message_handler))
