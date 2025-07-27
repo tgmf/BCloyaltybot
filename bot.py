@@ -3,6 +3,7 @@ import os
 import asyncio
 from typing import Dict, Optional
 from datetime import datetime
+import json
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
@@ -13,12 +14,69 @@ from telegram.error import TelegramError
 
 from content_manager import ContentManager
 
-# Enable logging
+# Enable logging with more detail
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+def log_update(update: Update, description: str = ""):
+    """Log detailed information about an Update object"""
+    try:
+        logger.info(f"=== {description} UPDATE LOG ===")
+        logger.info(f"Update ID: {update.update_id}")
+        
+        # Log message details
+        if update.message:
+            msg = update.message
+            logger.info(f"MESSAGE:")
+            logger.info(f"  Message ID: {msg.message_id}")
+            logger.info(f"  From: {msg.from_user.id} (@{msg.from_user.username}) - {msg.from_user.first_name}")
+            logger.info(f"  Chat: {msg.chat.id} ({msg.chat.type})")
+            logger.info(f"  Text: {msg.text}")
+            logger.info(f"  Caption: {msg.caption}")
+            if msg.photo:
+                logger.info(f"  Photo: {len(msg.photo)} sizes, largest: {msg.photo[-1].file_id}")
+            if msg.entities:
+                logger.info(f"  Entities: {[(e.type, e.offset, e.length) for e in msg.entities]}")
+        
+        # Log callback query details
+        if update.callback_query:
+            cb = update.callback_query
+            logger.info(f"CALLBACK QUERY:")
+            logger.info(f"  Query ID: {cb.id}")
+            logger.info(f"  From: {cb.from_user.id} (@{cb.from_user.username}) - {cb.from_user.first_name}")
+            logger.info(f"  Data: {cb.data}")
+            if cb.message:
+                logger.info(f"  Message ID: {cb.message.message_id}")
+                logger.info(f"  Message Text/Caption: {cb.message.text or cb.message.caption}")
+        
+        logger.info(f"=== END UPDATE LOG ===")
+        
+    except Exception as e:
+        logger.error(f"Error logging update: {e}")
+
+def log_response(response_data: dict, description: str = ""):
+    """Log detailed response information"""
+    try:
+        logger.info(f"=== {description} RESPONSE LOG ===")
+        logger.info(f"Response: {json.dumps(response_data, indent=2, default=str)}")
+        logger.info(f"=== END RESPONSE LOG ===")
+    except Exception as e:
+        logger.error(f"Error logging response: {e}")
+
+# Monkey patch telegram methods to add logging
+original_send_message = None
+original_edit_message_text = None
+original_edit_message_media = None
+original_send_photo = None
+
+def setup_telegram_logging():
+    """Setup logging for telegram API calls"""
+    global original_send_message, original_edit_message_text, original_edit_message_media, original_send_photo
+    
+    # We'll add this after bot creation
 
 class UserSession:
     """Track user session for navigation"""
@@ -67,6 +125,8 @@ class LoyaltyBot:
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start command - shows promos for everyone"""
+        log_update(update, "START COMMAND")
+        
         user = update.effective_user
         user_id = user.id
         username = user.username or ""
@@ -89,12 +149,14 @@ class LoyaltyBot:
         
         if not active_promos:
             welcome_text += "\n\nNo promos available at the moment."
-            await update.message.reply_text(welcome_text, parse_mode="Markdown")
+            response = await update.message.reply_text(welcome_text, parse_mode="Markdown")
+            log_response(response.to_dict(), "WELCOME MESSAGE (NO PROMOS)")
             logger.warning("No active promos found")
             return
         
         # Show welcome first
-        await update.message.reply_text(welcome_text, parse_mode="Markdown")
+        welcome_response = await update.message.reply_text(welcome_text, parse_mode="Markdown")
+        log_response(welcome_response.to_dict(), "WELCOME MESSAGE")
         
         # Show first promo (same for everyone)
         await self.show_promo(update, context, user_id, 0)
@@ -103,6 +165,8 @@ class LoyaltyBot:
     
     async def show_promo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, index: int):
         """Display promo message with navigation"""
+        logger.info(f"SHOW_PROMO: user_id={user_id}, index={index}")
+        
         active_promos = self.content_manager.get_active_promos()
         
         if not active_promos or index < 0 or index >= len(active_promos):
@@ -110,6 +174,8 @@ class LoyaltyBot:
             return
         
         promo = active_promos[index]
+        logger.info(f"PROMO DATA: {promo}")
+        
         session = self.get_or_create_session(user_id)
         session.current_index = index
         
@@ -137,39 +203,50 @@ class LoyaltyBot:
             keyboard.append(admin_buttons)
         
         reply_markup = InlineKeyboardMarkup(keyboard)
+        logger.info(f"KEYBOARD: {reply_markup.to_dict()}")
         
         # Send message
         try:
             if promo["image_file_id"]:
                 if update.callback_query:
                     # Edit existing message
-                    await update.callback_query.edit_message_media(
+                    logger.info("EDITING MESSAGE WITH MEDIA")
+                    response = await update.callback_query.edit_message_media(
                         media=InputMediaPhoto(media=promo["image_file_id"], caption=promo["text"]),
                         reply_markup=reply_markup
                     )
+                    log_response(response.to_dict() if response else {"result": "edit_success"}, "EDIT MESSAGE MEDIA")
                 else:
                     # Send new message
-                    await update.message.reply_photo(
+                    logger.info("SENDING NEW PHOTO MESSAGE")
+                    response = await update.message.reply_photo(
                         photo=promo["image_file_id"],
                         caption=promo["text"],
                         reply_markup=reply_markup
                     )
+                    log_response(response.to_dict(), "SEND PHOTO MESSAGE")
             else:
                 if update.callback_query:
-                    await update.callback_query.edit_message_text(
+                    logger.info("EDITING TEXT MESSAGE")
+                    response = await update.callback_query.edit_message_text(
                         text=promo["text"],
                         reply_markup=reply_markup
                     )
+                    log_response(response.to_dict() if response else {"result": "edit_success"}, "EDIT TEXT MESSAGE")
                 else:
-                    await update.message.reply_text(
+                    logger.info("SENDING NEW TEXT MESSAGE")
+                    response = await update.message.reply_text(
                         text=promo["text"],
                         reply_markup=reply_markup
                     )
+                    log_response(response.to_dict(), "SEND TEXT MESSAGE")
         except TelegramError as e:
             logger.error(f"Failed to show promo: {e}")
     
     async def navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle navigation buttons (prev/next) with looping"""
+        log_update(update, "NAVIGATION")
+        
         query = update.callback_query
         await query.answer()
         
@@ -377,12 +454,15 @@ class LoyaltyBot:
     
     async def admin_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle new message from admin (create/edit promo)"""
+        log_update(update, "ADMIN MESSAGE HANDLER")
+        
         user_id = update.effective_user.id
         
         # Check if user is admin
         user = update.effective_user
         username = user.username or ""
         if not await self.check_admin_access(user_id, username):
+            logger.info("Non-admin user sent message, ignoring")
             return  # Ignore messages from non-admins
         
         message = update.message
@@ -403,6 +483,11 @@ class LoyaltyBot:
                     link = text[entity.offset:entity.offset + entity.length]
                     break
         
+        logger.info(f"EXTRACTED MESSAGE DATA:")
+        logger.info(f"  Text: {text}")
+        logger.info(f"  Image file_id: {image_file_id}")
+        logger.info(f"  Link: {link}")
+        
         # Check if this is an edit operation
         edit_id = None
         if user_id in self.pending_messages and "edit_id" in self.pending_messages[user_id]:
@@ -417,6 +502,8 @@ class LoyaltyBot:
             "created_by": str(user_id),
             "edit_id": edit_id
         }
+        
+        logger.info(f"STORED PENDING MESSAGE: {self.pending_messages[user_id]}")
         
         # Show preview
         await self.show_admin_preview(update, context, user_id)
