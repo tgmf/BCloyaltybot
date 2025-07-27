@@ -639,6 +639,7 @@ def main():
     def main_webhook():
         """Handle main bot webhook"""
         try:
+            logger.info(f"Main webhook received: {request.get_json()}")
             update = Update.de_json(request.get_json(), main_app.bot)
             # Run async handler in event loop
             loop = asyncio.new_event_loop()
@@ -654,6 +655,7 @@ def main():
     def admin_webhook():
         """Handle admin bot webhook"""
         try:
+            logger.info(f"Admin webhook received: {request.get_json()}")
             update = Update.de_json(request.get_json(), admin_app.bot)
             # Run async handler in event loop
             loop = asyncio.new_event_loop()
