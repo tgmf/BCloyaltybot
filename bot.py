@@ -44,11 +44,17 @@ class LoyaltyBot:
         
         user_id_str = str(user_id)
         
+        logger.info(f"Checking admin access for user_id: {user_id_str}, username: {username}")
+        logger.info(f"Auth cache: {self.content_manager.auth_cache}")
+        
         # Check authorization by user_id or username
         for phone, auth_data in self.content_manager.auth_cache.items():
+            logger.info(f"Checking phone {phone}: {auth_data}")
             if auth_data.get("user_id") == user_id_str or auth_data.get("username") == username:
+                logger.info(f"Admin access granted for user {user_id_str}")
                 return True
         
+        logger.info(f"Admin access denied for user {user_id_str}")
         return False
     
     def get_or_create_session(self, user_id: int) -> UserSession:
@@ -224,23 +230,42 @@ class LoyaltyBot:
             await update.message.reply_text("📭 No promos found.")
             return
         
-        for promo in all_promos[:10]:  # Limit to 10 to avoid message length issues
-            status_emoji = {"active": "✅", "draft": "📄", "inactive": "❌"}.get(promo["status"], "❓")
-            
-            text = f"{status_emoji} *ID {promo['id']}* (Order: {promo['order']})\n{promo['text'][:100]}..."
-            
-            keyboard = [
-                [
-                    InlineKeyboardButton("🔄 Toggle", callback_data=f"admin_toggle_{promo['id']}"),
-                    InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_delete_{promo['id']}")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+        logger.info(f"Found {len(all_promos)} promos to display")
+        
+        for i, promo in enumerate(all_promos[:10]):  # Limit to 10 to avoid message length issues
             try:
-                if promo["image_file_id"]:
+                # Debug logging
+                logger.info(f"Processing promo {i}: {type(promo)} - {promo}")
+                
+                # Ensure promo is a dictionary
+                if not isinstance(promo, dict):
+                    logger.error(f"Promo {i} is not a dictionary: {type(promo)} - {promo}")
+                    continue
+                
+                # Safely get values with defaults
+                promo_id = promo.get("id", "Unknown")
+                promo_order = promo.get("order", 0)
+                promo_status = promo.get("status", "unknown")
+                promo_text = promo.get("text", "No text")
+                promo_image_file_id = promo.get("image_file_id", "")
+                
+                status_emoji = {"active": "✅", "draft": "📄", "inactive": "❌"}.get(promo_status, "❓")
+                
+                # Safely truncate text
+                display_text = str(promo_text)[:100] if promo_text else "No text"
+                text = f"{status_emoji} *ID {promo_id}* (Order: {promo_order})\n{display_text}..."
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🔄 Toggle", callback_data=f"admin_toggle_{promo_id}"),
+                        InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_delete_{promo_id}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                if promo_image_file_id:
                     await update.message.reply_photo(
-                        photo=promo["image_file_id"],
+                        photo=promo_image_file_id,
                         caption=text,
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
@@ -251,8 +276,11 @@ class LoyaltyBot:
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
                     )
-            except TelegramError as e:
-                logger.error(f"Failed to send promo {promo['id']}: {e}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to send promo {i}: {e}")
+                # Send error message for this specific promo
+                await update.message.reply_text(f"❌ Error displaying promo {i}: {str(e)}")
     
     async def toggle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin: Toggle promo status command"""
