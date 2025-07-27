@@ -211,8 +211,8 @@ class BotApplication:
         self.google_creds = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         self.spreadsheet_id = os.getenv("GOOGLE_SPREADSHEET_ID")
         
-        # Content manager
-        self.content_manager = ContentManager(self.google_creds, self.spreadsheet_id)
+        # Content manager (will be initialized later)
+        self.content_manager = None
         
         # User sessions for main bot
         self.user_sessions: Dict[int, UserSession] = {}
@@ -222,6 +222,9 @@ class BotApplication:
 
     async def setup_applications(self):
         """Setup both bot applications"""
+        # Initialize content manager here (inside async context)
+        self.content_manager = ContentManager(self.google_creds, self.spreadsheet_id)
+        
         # Main bot application
         self.main_app = Application.builder().token(self.main_bot_token).build()
         
@@ -600,28 +603,35 @@ class BotApplication:
 
 
 def main():
-    """Run both bots"""
-    app = BotApplication()
+    """Run the main bot only for now"""
     
-    if not app.main_bot_token or not app.admin_bot_token:
-        logger.error("Bot tokens not provided")
+    # Check environment variables
+    main_token = os.getenv("MAIN_BOT_TOKEN")
+    if not main_token:
+        logger.error("MAIN_BOT_TOKEN not provided")
         return
     
-    async def setup_and_run():
-        # Setup applications
-        main_app, admin_app = await app.setup_applications()
-        
-        logger.info("Starting main bot...")
-        
-        # Start main bot first
-        await main_app.run_polling(drop_pending_updates=True)
+    # Create application directly
+    application = Application.builder().token(main_token).build()
     
-    try:
-        asyncio.run(setup_and_run())
-    except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
-    except Exception as e:
-        logger.error(f"Error running bots: {e}")
+    # Create bot app instance
+    app = BotApplication()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", app.main_start))
+    application.add_handler(CallbackQueryHandler(app.main_navigation, pattern="^(prev|next)$"))
+    application.add_handler(CallbackQueryHandler(app.main_visit_link, pattern="^visit_"))
+    
+    # Initialize content manager in sync context
+    app.content_manager = ContentManager(
+        os.getenv("GOOGLE_SHEETS_CREDENTIALS"), 
+        os.getenv("GOOGLE_SPREADSHEET_ID")
+    )
+    
+    logger.info("Starting main bot...")
+    
+    # Run bot
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
