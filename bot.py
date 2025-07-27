@@ -84,10 +84,8 @@ class LoyaltyBot:
         active_promos = self.content_manager.get_active_promos()
         logger.info(f"Found {len(active_promos)} active promos")
         
-        # Send welcome message
+        # Send welcome message (same for everyone)
         welcome_text = "🎉 Welcome to BC Loyalty!"
-        if session.is_admin:
-            welcome_text += "\n\n🎛️ *Admin Panel Active*\nYou can use admin commands like /list, /edit, /toggle, /delete"
         
         if not active_promos:
             welcome_text += "\n\nNo promos available at the moment."
@@ -95,8 +93,10 @@ class LoyaltyBot:
             logger.warning("No active promos found")
             return
         
-        # Show welcome + first promo
+        # Show welcome first
         await update.message.reply_text(welcome_text, parse_mode="Markdown")
+        
+        # Show first promo (same for everyone)
         await self.show_promo(update, context, user_id, 0)
     
     # ===== PROMO DISPLAY (USER FUNCTIONALITY) =====
@@ -115,20 +115,26 @@ class LoyaltyBot:
         
         # Create navigation keyboard
         keyboard = []
-        nav_buttons = []
         
-        # Always show Previous and Next buttons (since we loop)
+        # Navigation row (always first)
+        nav_buttons = []
         nav_buttons.append(InlineKeyboardButton("← Previous", callback_data="prev"))
         
         # Visit link button
         if promo["link"]:
             nav_buttons.append(InlineKeyboardButton("🔗 Visit Link", callback_data=f"visit_{promo['id']}"))
         
-        # Always show Next button (since we loop)
         nav_buttons.append(InlineKeyboardButton("Next →", callback_data="next"))
+        keyboard.append(nav_buttons)
         
-        if nav_buttons:
-            keyboard.append(nav_buttons)
+        # Admin panel row (only for admins)
+        if session.is_admin:
+            admin_buttons = []
+            admin_buttons.append(InlineKeyboardButton("📋 List", callback_data="admin_list"))
+            admin_buttons.append(InlineKeyboardButton("📝 Edit", callback_data=f"admin_edit_{promo['id']}"))
+            admin_buttons.append(InlineKeyboardButton("🔄 Toggle", callback_data=f"admin_toggle_{promo['id']}"))
+            admin_buttons.append(InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_delete_{promo['id']}"))
+            keyboard.append(admin_buttons)
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -473,14 +479,114 @@ class LoyaltyBot:
             if user_id in self.pending_messages:
                 del self.pending_messages[user_id]
             await query.message.reply_text("❌ Operation cancelled.")
+        elif data == "admin_list":
+            # Show list of all promos in a new message
+            await self.list_promos_inline(update, context)
+        elif data == "back_to_promo":
+            # Return to current promo view
+            user_id = update.effective_user.id
+            session = self.get_or_create_session(user_id)
+            await self.show_promo(update, context, user_id, session.current_index)
+        elif data.startswith("confirm_delete_"):
+            promo_id = int(data.split("_")[2])
+            await self.confirm_delete_promo(update, context, promo_id)
+        elif data.startswith("admin_edit_"):
+            promo_id = int(data.split("_")[2])
+            await self.edit_promo_inline(update, context, promo_id)
         elif data.startswith("admin_toggle_"):
             promo_id = int(data.split("_")[2])
-            await self.toggle_promo_status(update, context, promo_id)
+            await self.toggle_promo_status_inline(update, context, promo_id)
         elif data.startswith("admin_delete_"):
             promo_id = int(data.split("_")[2])
-            await self.delete_promo(update, context, promo_id)
+            await self.delete_promo_inline(update, context, promo_id)
     
-    async def publish_pending_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, status: str):
+    async def list_promos_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin: Show brief list of promos in current message"""
+        await self.content_manager.refresh_cache()
+        all_promos = self.content_manager.get_all_promos()
+        
+        if not all_promos:
+            await update.callback_query.edit_message_text("📭 No promos found.")
+            return
+        
+        # Create a summary list
+        summary_lines = ["📋 **All Promos:**\n"]
+        for promo in all_promos[:10]:  # Limit to 10
+            status_emoji = {"active": "✅", "draft": "📄", "inactive": "❌"}.get(promo.get("status"), "❓")
+            promo_text = str(promo.get("text", "No text"))[:50]
+            summary_lines.append(f"{status_emoji} **ID {promo.get('id')}**: {promo_text}...")
+        
+        summary_text = "\n".join(summary_lines)
+        
+        # Add back button
+        keyboard = [[InlineKeyboardButton("← Back to Promo", callback_data="back_to_promo")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            text=summary_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+    
+    async def edit_promo_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
+        """Admin: Prepare to edit specific promo"""
+        user_id = update.effective_user.id
+        
+        # Store the promo ID for editing
+        if user_id not in self.pending_messages:
+            self.pending_messages[user_id] = {}
+        self.pending_messages[user_id]["edit_id"] = promo_id
+        
+        await update.callback_query.edit_message_text(
+            text=f"📝 **Edit Promo {promo_id}**\n\nSend a new message with updated content (text + image + link).",
+            parse_mode="Markdown"
+        )
+    
+    async def toggle_promo_status_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
+        """Admin: Toggle promo status and update current message"""
+        promos = self.content_manager.get_all_promos()
+        promo = next((p for p in promos if p["id"] == promo_id), None)
+        
+        if not promo:
+            await update.callback_query.edit_message_text(f"❌ Promo {promo_id} not found")
+            return
+        
+        old_status = promo["status"]
+        new_status = "inactive" if old_status == "active" else "active"
+        
+        if await self.content_manager.update_promo_status(promo_id, new_status):
+            # Show success message briefly, then return to promo view
+            await update.callback_query.edit_message_text(
+                f"✅ Promo {promo_id} status changed: {old_status} → {new_status}\n\nReturning to promo view...",
+                parse_mode="Markdown"
+            )
+            
+            # Return to promo view after 2 seconds
+            import asyncio
+            await asyncio.sleep(2)
+            
+            user_id = update.effective_user.id
+            session = self.get_or_create_session(user_id)
+            await self.show_promo(update, context, user_id, session.current_index)
+        else:
+            await update.callback_query.edit_message_text(f"❌ Failed to update promo {promo_id}")
+    
+    async def delete_promo_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
+        """Admin: Delete promo with confirmation"""
+        # Show confirmation buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_{promo_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="back_to_promo")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.edit_message_text(
+            f"🗑️ **Delete Promo {promo_id}?**\n\nThis action cannot be undone.",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
         """Publish pending message with given status"""
         pending = self.pending_messages.get(user_id)
         if not pending:
