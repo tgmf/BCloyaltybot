@@ -1,7 +1,6 @@
 import logging
 import os
 import asyncio
-import time
 from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -22,11 +21,12 @@ logger = logging.getLogger(__name__)
 flask_app = None
 main_app = None
 admin_app = None
+content_manager = None
 webhooks_initialized = False
 
 async def initialize_webhooks():
     """Initialize webhooks with proper delays"""
-    global webhooks_initialized
+    global webhooks_initialized, main_app, admin_app
     
     if webhooks_initialized:
         return True
@@ -60,7 +60,7 @@ async def initialize_webhooks():
 
 def create_app():
     """Create and configure Flask app"""
-    global flask_app, main_app, admin_app
+    global flask_app, main_app, admin_app, content_manager
     
     # Check environment variables
     main_token = os.getenv("MAIN_BOT_TOKEN")
@@ -73,7 +73,7 @@ def create_app():
     # Create Flask app
     flask_app = Flask(__name__)
     
-    # Shared content manager
+    # Shared content manager - assign to global variable
     content_manager = ContentManager(
         os.getenv("GOOGLE_SHEETS_CREDENTIALS"), 
         os.getenv("GOOGLE_SPREADSHEET_ID")
@@ -83,7 +83,7 @@ def create_app():
     main_bot = MainBot(content_manager)
     admin_bot = AdminBot(content_manager)
     
-    # Create bot applications (but don't set webhooks yet)
+    # Create bot applications - assign to global variables
     main_app = Application.builder().token(main_token).build()
     admin_app = Application.builder().token(admin_token).build()
     
@@ -122,11 +122,13 @@ def create_app():
         logger.info("Bot initialization completed successfully")
     except Exception as e:
         logger.error(f"Critical error during initialization: {e}")
+        return None
     
-    # Routes
+    # Routes - now they can access the global variables
     @flask_app.route("/webhook/main", methods=["POST"])
     def main_webhook():
         """Handle main bot webhook"""
+        global webhooks_initialized, main_app
         try:
             # Lazy webhook initialization on first request
             if not webhooks_initialized:
@@ -158,6 +160,7 @@ def create_app():
     @flask_app.route("/webhook/admin", methods=["POST"])
     def admin_webhook():
         """Handle admin bot webhook"""
+        global webhooks_initialized, admin_app
         try:
             # Lazy webhook initialization on first request
             if not webhooks_initialized:
@@ -211,14 +214,15 @@ def create_app():
     @flask_app.route("/status", methods=["GET"])
     def status():
         """Status endpoint"""
+        global webhooks_initialized, main_app, admin_app, content_manager
         try:
             return {
                 "status": "running",
                 "webhooks_initialized": webhooks_initialized,
-                "main_bot": f"@{main_app.bot.username}" if hasattr(main_app.bot, "username") else "unknown",
-                "admin_bot": f"@{admin_app.bot.username}" if hasattr(admin_app.bot, "username") else "unknown",
-                "active_promos": len(content_manager.get_active_promos()),
-                "total_promos": len(content_manager.get_all_promos())
+                "main_bot": f"@{main_app.bot.username}" if main_app and hasattr(main_app.bot, "username") else "unknown",
+                "admin_bot": f"@{admin_app.bot.username}" if admin_app and hasattr(admin_app.bot, "username") else "unknown",
+                "active_promos": len(content_manager.get_active_promos()) if content_manager else 0,
+                "total_promos": len(content_manager.get_all_promos()) if content_manager else 0
             }
         except Exception as e:
             logger.error(f"Status endpoint error: {e}")
