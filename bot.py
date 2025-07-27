@@ -556,11 +556,15 @@ class LoyaltyBot:
     
     async def admin_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle admin callback queries"""
+        log_update(update, "ADMIN CALLBACK HANDLER")
+        
         query = update.callback_query
         await query.answer()
         
         user_id = update.effective_user.id
         data = query.data
+        
+        logger.info(f"ADMIN CALLBACK: user_id={user_id}, data={data}")
         
         # Check admin access for callback queries
         user = update.effective_user
@@ -570,15 +574,20 @@ class LoyaltyBot:
             return
         
         if data == "admin_publish":
+            logger.info("Publishing pending message as active")
             await self.publish_pending_message(update, context, user_id, "active")
         elif data == "admin_draft":
+            logger.info("Publishing pending message as draft")
             await self.publish_pending_message(update, context, user_id, "draft")
         elif data == "admin_edit":
             await query.message.reply_text("Send the updated message:")
         elif data == "admin_cancel":
+            # Return to promo view instead of showing "cancelled" message
             if user_id in self.pending_messages:
                 del self.pending_messages[user_id]
-            await query.message.reply_text("❌ Operation cancelled.")
+            
+            session = self.get_or_create_session(user_id)
+            await self.show_promo(update, context, user_id, session.current_index)
         elif data == "admin_list":
             # Show list of all promos in a new message
             await self.list_promos_inline(update, context)
@@ -624,18 +633,62 @@ class LoyaltyBot:
         )
     
     async def edit_promo_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
-        """Admin: Prepare to edit specific promo"""
+        """Admin: Show current promo content for editing"""
         user_id = update.effective_user.id
+        
+        # Get the promo data
+        all_promos = self.content_manager.get_all_promos()
+        promo = next((p for p in all_promos if p["id"] == promo_id), None)
+        
+        if not promo:
+            await update.callback_query.edit_message_text(f"❌ Promo {promo_id} not found")
+            return
         
         # Store the promo ID for editing
         if user_id not in self.pending_messages:
             self.pending_messages[user_id] = {}
-        self.pending_messages[user_id]["edit_id"] = promo_id
         
-        await update.callback_query.edit_message_text(
-            text=f"📝 **Edit Promo {promo_id}**\n\nSend a new message with updated content (text + image + link).",
-            parse_mode="Markdown"
-        )
+        # Pre-populate with current content
+        self.pending_messages[user_id] = {
+            "text": promo.get("text", ""),
+            "image_file_id": promo.get("image_file_id", ""),
+            "link": promo.get("link", ""),
+            "created_by": str(user_id),
+            "edit_id": promo_id
+        }
+        
+        # Show current content in editing mode
+        edit_text = f"📝 **Editing Promo {promo_id}**\n\n"
+        edit_text += f"**Current content:**\n{promo.get('text', 'No text')}"
+        
+        if promo.get("link"):
+            edit_text += f"\n\n🔗 Link: {promo.get('link')}"
+        
+        edit_text += "\n\n*Send a new message to replace this content, or use the buttons below:*"
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("📤 Keep Current & Publish", callback_data="admin_publish"),
+                InlineKeyboardButton("📄 Keep Current & Draft", callback_data="admin_draft")
+            ],
+            [
+                InlineKeyboardButton("← Back to Promo", callback_data="back_to_promo"),
+                InlineKeyboardButton("❌ Cancel Edit", callback_data="back_to_promo")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        if promo.get("image_file_id"):
+            await update.callback_query.edit_message_media(
+                media=InputMediaPhoto(media=promo["image_file_id"], caption=edit_text),
+                reply_markup=reply_markup
+            )
+        else:
+            await update.callback_query.edit_message_text(
+                text=edit_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
     
     async def toggle_promo_status_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
         """Admin: Toggle promo status and update current message"""
@@ -650,21 +703,83 @@ class LoyaltyBot:
         new_status = "inactive" if old_status == "active" else "active"
         
         if await self.content_manager.update_promo_status(promo_id, new_status):
-            # Show success message briefly, then return to promo view
-            await update.callback_query.edit_message_text(
-                f"✅ Promo {promo_id} status changed: {old_status} → {new_status}\n\nReturning to promo view...",
-                parse_mode="Markdown"
-            )
-            
-            # Return to promo view after 2 seconds
-            import asyncio
-            await asyncio.sleep(2)
-            
+            # Return directly to promo view with success message in caption/text
             user_id = update.effective_user.id
             session = self.get_or_create_session(user_id)
-            await self.show_promo(update, context, user_id, session.current_index)
+            
+            # Update promo data and add success message
+            updated_promos = self.content_manager.get_active_promos()
+            if updated_promos and session.current_index < len(updated_promos):
+                await self.show_promo_with_message(update, context, user_id, session.current_index, 
+                                                 f"✅ Promo {promo_id}: {old_status} → {new_status}")
+            else:
+                # If no promos or current index invalid, go to first promo
+                if updated_promos:
+                    session.current_index = 0
+                    await self.show_promo_with_message(update, context, user_id, 0, 
+                                                     f"✅ Promo {promo_id}: {old_status} → {new_status}")
+                else:
+                    await update.callback_query.edit_message_text("📭 No promos available.")
         else:
-            await update.callback_query.edit_message_text(f"❌ Failed to update promo {promo_id}")
+            # Show error but still return to promo view
+            user_id = update.effective_user.id
+            session = self.get_or_create_session(user_id)
+            await self.show_promo_with_message(update, context, user_id, session.current_index, 
+                                             f"❌ Failed to update promo {promo_id}")
+    
+    async def show_promo_with_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, index: int, status_message: str):
+        """Show promo with an additional status message"""
+        active_promos = self.content_manager.get_active_promos()
+        
+        if not active_promos or index < 0 or index >= len(active_promos):
+            await update.callback_query.edit_message_text(f"{status_message}\n\n📭 No promos available.")
+            return
+        
+        promo = active_promos[index]
+        session = self.get_or_create_session(user_id)
+        session.current_index = index
+        
+        # Add status message to promo text
+        display_text = f"{status_message}\n\n{promo['text']}"
+        
+        # Create navigation keyboard (same as show_promo)
+        keyboard = []
+        
+        # Navigation row
+        nav_buttons = []
+        nav_buttons.append(InlineKeyboardButton("← Previous", callback_data="prev"))
+        
+        if promo["link"]:
+            nav_buttons.append(InlineKeyboardButton("🔗 Visit Link", callback_data=f"visit_{promo['id']}"))
+        
+        nav_buttons.append(InlineKeyboardButton("Next →", callback_data="next"))
+        keyboard.append(nav_buttons)
+        
+        # Admin panel row
+        if session.is_admin:
+            admin_buttons = []
+            admin_buttons.append(InlineKeyboardButton("📋 List", callback_data="admin_list"))
+            admin_buttons.append(InlineKeyboardButton("📝 Edit", callback_data=f"admin_edit_{promo['id']}"))
+            admin_buttons.append(InlineKeyboardButton("🔄 Toggle", callback_data=f"admin_toggle_{promo['id']}"))
+            admin_buttons.append(InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_delete_{promo['id']}"))
+            keyboard.append(admin_buttons)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send message
+        try:
+            if promo["image_file_id"]:
+                await update.callback_query.edit_message_media(
+                    media=InputMediaPhoto(media=promo["image_file_id"], caption=display_text),
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.callback_query.edit_message_text(
+                    text=display_text,
+                    reply_markup=reply_markup
+                )
+        except TelegramError as e:
+            logger.error(f"Failed to show promo with message: {e}")
     
     async def delete_promo_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
         """Admin: Delete promo with confirmation"""
