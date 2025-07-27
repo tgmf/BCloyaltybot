@@ -1,0 +1,1 @@
+worker: python loyalty_bot.py
