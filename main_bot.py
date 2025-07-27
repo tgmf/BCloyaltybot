@@ -130,24 +130,25 @@ class MainBot:
     def handle_webhook_request(self, request, main_app):
         """Handle webhook request for main bot"""
         try:
-            # Basic request validation
             if not request.is_json:
-                logger.warning("Main webhook: Request is not JSON")
                 return "Bad Request", 400
             
             update_data = request.get_json()
             if not update_data:
-                logger.warning("Main webhook: Empty request body")
                 return "Bad Request", 400
             
-            # Process update through main application in background
-            self._process_update_async(update_data, main_app)
+            # Let the main_app handle this in its own context
+            # Don't create new threads or event loops
+            update = Update.de_json(update_data, main_app.bot)
+            if update:
+                # Queue the update for processing
+                main_app.update_queue.put(update)
             
             return "OK", 200
             
         except Exception as e:
             logger.error(f"Main webhook error: {e}")
-            return "OK", 200  # Always return 200 to prevent Telegram retries
+            return "OK", 200
     
     def _process_update_async(self, update_data, main_app):
         """Process update in background thread"""
