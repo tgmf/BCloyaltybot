@@ -12,7 +12,6 @@ from admin_handlers import (
     list_promos_command, toggle_command, delete_command, edit_command,
     admin_message_handler, admin_callback_handler, back_to_promo_handler
 )
-from utils import setup_telegram_logging
 
 # Enable logging
 logging.basicConfig(
@@ -64,9 +63,6 @@ def create_application():
         
         # Create application
         application = Application.builder().token(token).build()
-        
-        # Setup logging
-        setup_telegram_logging()
         
         # Register handlers
         register_all_handlers(application, content_manager)
@@ -130,35 +126,35 @@ def register_all_handlers(application: Application, content_manager: ContentMana
     
     # ===== ADMIN CALLBACK HANDLERS =====
     
-    # Back to promo button (admin only)
+    # Back to promo button (admin only, camelCase)
     application.add_handler(
         CallbackQueryHandler(
             lambda update, context: back_to_promo_handler(update, context, content_manager),
-            pattern="^back_to_promo"
+            pattern="^backToPromo"
         )
     )
-    
-    # Admin callback handlers (all admin_ prefixed callbacks)
+
+    # Admin callback handlers (all admin* camelCase actions)
     application.add_handler(
         CallbackQueryHandler(
             lambda update, context: admin_callback_handler(update, context, content_manager),
-            pattern="^admin_"
+            pattern="^admin[A-Z]"
         )
     )
-    
-    # Confirmation callbacks (confirm_delete_, etc.)
+
+    # Confirmation callbacks (confirm* camelCase)
     application.add_handler(
         CallbackQueryHandler(
             lambda update, context: admin_callback_handler(update, context, content_manager),
-            pattern="^confirm_"
+            pattern="^confirm[A-Z]"
         )
     )
-    
-    # Edit dialog callbacks (edit_text_, edit_link_, etc.)
+
+    # Edit dialog callbacks (edit* camelCase)
     application.add_handler(
         CallbackQueryHandler(
             lambda update, context: admin_callback_handler(update, context, content_manager),
-            pattern="^edit_"
+            pattern="^edit[A-Z]"
         )
     )
     
@@ -196,14 +192,14 @@ async def handle_stateless_callback(update: Update, context: ContextTypes.DEFAUL
     
     logger.info(f"STATELESS CALLBACK: action={action}, state={state}")
     
-    # Route based on action
-    if action.startswith("admin_") or action.startswith("confirm_") or action.startswith("edit_"):
+    # Route based on action (camelCase)
+    if action.startswith("admin") or action.startswith("confirm") or action.startswith("edit"):
         await admin_callback_handler(update, context, content_manager)
     elif action in ["prev", "next"]:
         await navigation_handler(update, context, content_manager)
     elif action == "visit":
         await visit_link_handler(update, context, content_manager)
-    elif action == "back_to_promo":
+    elif action == "backToPromo":
         await back_to_promo_handler(update, context, content_manager)
     else:
         logger.warning(f"Unknown stateless callback action: {action}")

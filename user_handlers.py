@@ -193,20 +193,18 @@ async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await safe_send_message(update, text="⏰ This action has expired. Please use /start to refresh.")
         return
     
-    promo_id = state.get("promo_id")
+    promo_id = state.get("promoId")
     if not promo_id:
         await query.message.reply_text("❌ Invalid link request.")
         return
-    
-    # Get promo by ID
+    # Get promo by ID (ensure int comparison)
     active_promos = content_manager.get_active_promos()
     target_promo = None
     for promo in active_promos:
-        if promo["id"] == promo_id:
+        if str(promo["id"]) == str(promo_id):
             target_promo = promo
             break
-    
-    if target_promo and target_promo["link"]:
+    if target_promo and target_promo.get("link"):
         await query.message.reply_text(
             f"🔗 **Visit Link:**\n{target_promo['link']}",
             parse_mode="Markdown"

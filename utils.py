@@ -55,11 +55,6 @@ def log_response(response_data: dict, description: str = ""):
     except Exception as e:
         logger.error(f"Error logging response: {e}")
 
-def setup_telegram_logging():
-    """Setup logging for telegram API calls"""
-    # This can be extended to monkey patch telegram methods if needed
-    pass
-
 # ===== STATELESS STATE MANAGEMENT =====
 
 def encode_callback_state(action: str, **state_vars) -> str:
@@ -68,19 +63,20 @@ def encode_callback_state(action: str, **state_vars) -> str:
     Format: action_var1_value1_var2_value2
     Example: next_idx_2_admin_1_verified_1722176789
     """
-    parts = [action]
-    
+    # Use camelCase for keys and action
+    def to_camel(s):
+        parts = s.split('_')
+        return parts[0] + ''.join(word.capitalize() for word in parts[1:]) if len(parts) > 1 else s
+
+    action_camel = to_camel(action)
+    parts = [action_camel]
     for key, value in state_vars.items():
-        parts.extend([str(key), str(value)])
-    
-    # Telegram callback_data limit is 64 characters
+        parts.extend([to_camel(str(key)), str(value)])
     callback_data = "_".join(parts)
-    
     if len(callback_data) > 64:
         # If too long, use JSON encoding with compression
-        state_json = json.dumps({"a": action, **state_vars}, separators=(',', ':'))
+        state_json = json.dumps({"a": action_camel, **{to_camel(str(k)): v for k, v in state_vars.items()}}, separators=(',', ':'))
         return f"state_{state_json}"[:64]
-    
     return callback_data
 
 def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
@@ -91,47 +87,23 @@ def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
     if callback_data.startswith("state_"):
         # JSON encoded state
         try:
-            state_json = callback_data[6:]  # Remove "state_" prefix
+            state_json = callback_data[6:]
             data = json.loads(state_json)
             action = data.pop("a")
             return action, data
         except (json.JSONDecodeError, KeyError):
             return callback_data, {}
-    
-    # Simple underscore-separated format
+    # CamelCase action and keys, underscore-separated
     parts = callback_data.split("_")
     if len(parts) < 1:
         return callback_data, {}
-    
-    # Handle multi-word actions (admin_edit, admin_cancel, etc.)
     action = parts[0]
-    start_index = 1
-    
-    # Check for multi-word actions
-    if len(parts) > 1:
-        # Common multi-word patterns
-        if parts[0] == "admin" and len(parts) > 1:
-            action = f"{parts[0]}_{parts[1]}"
-            start_index = 2
-        elif parts[0] == "confirm" and len(parts) > 1:
-            action = f"{parts[0]}_{parts[1]}"
-            start_index = 2
-        elif parts[0] == "edit" and len(parts) > 1:
-            action = f"{parts[0]}_{parts[1]}"
-            start_index = 2
-        elif parts[0] == "back" and len(parts) > 2 and parts[1] == "to":
-            action = f"{parts[0]}_{parts[1]}_{parts[2]}"
-            start_index = 3
-    
     state = {}
-    
-    # Parse key-value pairs starting from start_index
-    for i in range(start_index, len(parts), 2):
+    i = 1
+    while i < len(parts):
         if i + 1 < len(parts):
             key = parts[i]
             value = parts[i + 1]
-            
-            # Try to convert to appropriate type
             try:
                 if value.isdigit():
                     state[key] = int(value)
@@ -143,7 +115,9 @@ def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
                     state[key] = value
             except:
                 state[key] = value
-    
+            i += 2
+        else:
+            i += 1
     return action, state
 
 def validate_callback_state(callback_data: str, max_age: int = 3600) -> bool:
@@ -177,18 +151,15 @@ def build_stateless_navigation_keyboard(promo_id: int, current_index: int, total
     # Navigation row
     nav_buttons = []
     nav_buttons.append(InlineKeyboardButton(
-        "← Previous", 
-        callback_data=encode_callback_state("prev", idx=prev_index, ts=current_time)
+        "← Previous",
+        callback_data=encode_callback_state("prev", idx=current_index, ts=current_time)
     ))
-    
-    # Visit link button (if promo has link, we'll check in handler)
     nav_buttons.append(InlineKeyboardButton(
-        "🔗 Visit Link", 
-        callback_data=encode_callback_state("visit", promo_id=promo_id, idx=current_index, ts=current_time)
+        "🔗 Visit Link",
+        callback_data=encode_callback_state("visit", promoId=promo_id, idx=current_index, ts=current_time)
     ))
-    
     nav_buttons.append(InlineKeyboardButton(
-        "Next →", 
+        "Next →",
         callback_data=encode_callback_state("next", idx=next_index, ts=current_time)
     ))
     keyboard.append(nav_buttons)
@@ -197,20 +168,20 @@ def build_stateless_navigation_keyboard(promo_id: int, current_index: int, total
     if is_admin:
         admin_buttons = []
         admin_buttons.append(InlineKeyboardButton(
-            "📋 List", 
-            callback_data=encode_callback_state("admin_list", idx=current_index, ts=current_time)
+            "📋 List",
+            callback_data=encode_callback_state("adminList", idx=current_index, ts=current_time)
         ))
         admin_buttons.append(InlineKeyboardButton(
-            "📝 Edit", 
-            callback_data=encode_callback_state("admin_edit", promo_id=promo_id, idx=current_index, ts=current_time)
+            "📝 Edit",
+            callback_data=encode_callback_state("adminEdit", promoId=promo_id, idx=current_index, ts=current_time)
         ))
         admin_buttons.append(InlineKeyboardButton(
-            "🔄 Toggle", 
-            callback_data=encode_callback_state("admin_toggle", promo_id=promo_id, idx=current_index, ts=current_time)
+            "🔄 Toggle",
+            callback_data=encode_callback_state("adminToggle", promoId=promo_id, idx=current_index, ts=current_time)
         ))
         admin_buttons.append(InlineKeyboardButton(
-            "🗑️ Delete", 
-            callback_data=encode_callback_state("admin_delete", promo_id=promo_id, idx=current_index, ts=current_time)
+            "🗑️ Delete",
+            callback_data=encode_callback_state("adminDelete", promoId=promo_id, idx=current_index, ts=current_time)
         ))
         keyboard.append(admin_buttons)
     
@@ -223,28 +194,28 @@ def build_admin_edit_keyboard(promo_id: int, current_index: int) -> InlineKeyboa
     keyboard = [
         [
             InlineKeyboardButton(
-                "📝 Text", 
-                callback_data=encode_callback_state("edit_text", promo_id=promo_id, idx=current_index, ts=current_time)
+                "📝 Text",
+                callback_data=encode_callback_state("editText", promoId=promo_id, idx=current_index, ts=current_time)
             ),
             InlineKeyboardButton(
-                "🔗 Link", 
-                callback_data=encode_callback_state("edit_link", promo_id=promo_id, idx=current_index, ts=current_time)
+                "🔗 Link",
+                callback_data=encode_callback_state("editLink", promoId=promo_id, idx=current_index, ts=current_time)
             )
         ],
         [
             InlineKeyboardButton(
-                "🖼️ Image", 
-                callback_data=encode_callback_state("edit_image", promo_id=promo_id, idx=current_index, ts=current_time)
+                "🖼️ Image",
+                callback_data=encode_callback_state("editImage", promoId=promo_id, idx=current_index, ts=current_time)
             ),
             InlineKeyboardButton(
-                "🔄 Replace All", 
-                callback_data=encode_callback_state("edit_all", promo_id=promo_id, idx=current_index, ts=current_time)
+                "🔄 Replace All",
+                callback_data=encode_callback_state("editAll", promoId=promo_id, idx=current_index, ts=current_time)
             )
         ],
         [
             InlineKeyboardButton(
-                "← Back to Promo", 
-                callback_data=encode_callback_state("back_to_promo", idx=current_index, ts=current_time)
+                "← Back to Promo",
+                callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time)
             )
         ]
     ]
@@ -257,12 +228,12 @@ def build_confirmation_keyboard(action: str, promo_id: int, current_index: int) 
     keyboard = [
         [
             InlineKeyboardButton(
-                f"✅ Yes, {action}", 
-                callback_data=encode_callback_state(f"confirm_{action.lower()}", promo_id=promo_id, idx=current_index, ts=current_time)
+                f"✅ Yes, {action}",
+                callback_data=encode_callback_state(f"confirm{action.title()}", promoId=promo_id, idx=current_index, ts=current_time)
             ),
             InlineKeyboardButton(
-                "❌ Cancel", 
-                callback_data=encode_callback_state("back_to_promo", idx=current_index, ts=current_time)
+                "❌ Cancel",
+                callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time)
             )
         ]
     ]
@@ -410,6 +381,17 @@ def validate_promo_data(promo: Dict) -> bool:
             return False
     
     return True
+
+# ===== DEBUGGING FUNCTIONS =====
+
+def test_callback_parsing():
+    """Test callback data parsing"""
+    test_data = "admin_edit_promo_id_1_idx_0_ts_1753678528"
+    action, state = decode_callback_state(test_data)
+    print(f"Test callback: {test_data}")
+    print(f"Parsed action: {action}")
+    print(f"Parsed state: {state}")
+    return action, state
 
 # ===== FORMATTING HELPERS =====
 

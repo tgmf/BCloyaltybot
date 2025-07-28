@@ -94,12 +94,12 @@ async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             current_time = int(__import__('time').time())
             keyboard = [
                 [
-                    InlineKeyboardButton("📝 Edit", 
-                        callback_data=encode_callback_state("admin_edit", promo_id=promo_id, idx=i, ts=current_time)),
-                    InlineKeyboardButton("🔄 Toggle", 
-                        callback_data=encode_callback_state("admin_toggle", promo_id=promo_id, idx=i, ts=current_time)),
-                    InlineKeyboardButton("🗑️ Delete", 
-                        callback_data=encode_callback_state("admin_delete", promo_id=promo_id, idx=i, ts=current_time))
+                    InlineKeyboardButton("📝 Edit",
+                        callback_data=encode_callback_state("adminEdit", promoId=promo_id, idx=i, ts=current_time)),
+                    InlineKeyboardButton("🔄 Toggle",
+                        callback_data=encode_callback_state("adminToggle", promoId=promo_id, idx=i, ts=current_time)),
+                    InlineKeyboardButton("🗑️ Delete",
+                        callback_data=encode_callback_state("adminDelete", promoId=promo_id, idx=i, ts=current_time))
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -193,7 +193,7 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Back button with stateless callback
     current_time = int(__import__('time').time())
     keyboard = [[InlineKeyboardButton("← Back to Promo", 
-                 callback_data=encode_callback_state("back_to_promo", idx=current_index, ts=current_time))]]
+                 callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time))]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await safe_edit_message(update, text=summary_text, reply_markup=reply_markup, parse_mode="Markdown")
@@ -207,33 +207,32 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
         await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
         return
     
-    promo_id = state.get("promo_id")
+    promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
-    
+    try:
+        promo_id = int(promo_id)
+    except (TypeError, ValueError):
+        await safe_edit_message(update, text=f"❌ Invalid promo_id: {promo_id}")
+        return
     promos = content_manager.get_all_promos()
-    promo = next((p for p in promos if p["id"] == promo_id), None)
-    
+    logger.info(f"promo_id from state: {promo_id} (type: {type(promo_id)})")
+    logger.info(f"promo ids in list: {[p['id'] for p in promos]}")
+    promo = next((p for p in promos if int(p["id"]) == promo_id), None)
     if not promo:
         await safe_edit_message(update, text=f"❌ Promo {promo_id} not found")
         return
-    
     old_status = promo["status"]
     new_status = "inactive" if old_status == "active" else "active"
-    
     user_id, username, _ = get_user_info(update)
-    
     if await content_manager.update_promo_status(promo_id, new_status):
         log_admin_action(user_id, username, "TOGGLE_PROMO", f"promo_id={promo_id}, {old_status}→{new_status}")
-        
         # Check if user is still admin for displaying result
         is_admin = await check_admin_access(content_manager, user_id, username)
-        
         success_msg = f"✅ Promo {promo_id}: {old_status} → {new_status}"
         await show_promo_with_status_message(update, context, content_manager, current_index, is_admin, user_id, success_msg)
     else:
         # Check if user is still admin for displaying result
         is_admin = await check_admin_access(content_manager, user_id, username)
-        
         error_msg = f"❌ Failed to update promo {promo_id}"
         await show_promo_with_status_message(update, context, content_manager, current_index, is_admin, user_id, error_msg)
 
@@ -246,7 +245,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
         await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
         return
     
-    promo_id = state.get("promo_id")
+    promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
     
     # Show confirmation with stateless callback
@@ -268,7 +267,7 @@ async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYP
         await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
         return
     
-    promo_id = state.get("promo_id")
+    promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
     
     user_id, username, _ = get_user_info(update)
@@ -297,7 +296,7 @@ async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
         return
     
-    promo_id = state.get("promo_id")
+    promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
     
     # Get the promo data
@@ -437,9 +436,9 @@ async def publish_pending_message(update: Update, context: ContextTypes.DEFAULT_
         await safe_send_message(update, text="⏰ This action has expired. Please try again.")
         return
     
-    user_id = state.get("user_id")
+    user_id = state.get("userId")
     if not user_id:
-        logger.error("No user_id in callback state")
+        logger.error("No userId in callback state")
         await safe_send_message(update, text="❌ Invalid request.")
         return
     
@@ -525,29 +524,29 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     # Route to appropriate handler
-    if action == "admin_publish":
+    if action == "adminPublish":
         logger.info("Routing to publish_pending_message with status 'active'")
         await publish_pending_message(update, context, content_manager, "active")
-    elif action == "admin_draft":
+    elif action == "adminDraft":
         logger.info("Routing to publish_pending_message with status 'draft'")
         await publish_pending_message(update, context, content_manager, "draft")
-    elif action == "admin_edit_text":
+    elif action == "adminEditText":
         await query.message.reply_text("📝 Send the updated message:")
-    elif action == "admin_cancel":
+    elif action == "adminCancel":
         # Clear pending and return to promo view
         user_id_int = int(user_id) if isinstance(user_id, str) else user_id
         if user_id_int in pending_messages_store:
             del pending_messages_store[user_id_int]
         await back_to_promo_handler(update, context, content_manager)
-    elif action == "admin_list":
+    elif action == "adminList":
         await list_promos_inline(update, context, content_manager)
-    elif action == "confirm_delete":
+    elif action == "confirmDelete":
         await confirm_delete_promo(update, context, content_manager)
-    elif action == "admin_edit":
+    elif action == "adminEdit":
         await edit_promo_inline(update, context, content_manager)
-    elif action == "admin_toggle":
+    elif action == "adminToggle":
         await toggle_promo_status_inline(update, context, content_manager)
-    elif action == "admin_delete":
+    elif action == "adminDelete":
         await delete_promo_inline(update, context, content_manager)
     else:
         logger.warning(f"Unknown admin callback action: {action}")
