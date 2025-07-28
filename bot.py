@@ -603,6 +603,18 @@ class LoyaltyBot:
         elif data.startswith("admin_delete_"):
             promo_id = int(data.split("_")[2])
             await self.delete_promo_inline(update, context, promo_id)
+        elif data.startswith("edit_text_"):
+            promo_id = int(data.split("_")[2])
+            await self.edit_text_dialog(update, context, promo_id)
+        elif data.startswith("edit_link_"):
+            promo_id = int(data.split("_")[2])
+            await self.edit_link_dialog(update, context, promo_id)
+        elif data.startswith("edit_image_"):
+            promo_id = int(data.split("_")[2])
+            await self.edit_image_dialog(update, context, promo_id)
+        elif data.startswith("edit_all_"):
+            promo_id = int(data.split("_")[2])
+            await self.edit_all_dialog(update, context, promo_id)
     
     async def list_promos_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin: Show brief list of promos in current message"""
@@ -633,7 +645,7 @@ class LoyaltyBot:
         )
     
     async def edit_promo_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
-        """Admin: Show current promo content for editing"""
+        """Admin: Show editing options for specific promo"""
         user_id = update.effective_user.id
         
         # Get the promo data
@@ -644,51 +656,39 @@ class LoyaltyBot:
             await update.callback_query.edit_message_text(f"❌ Promo {promo_id} not found")
             return
         
-        # Store the promo ID for editing
+        # Store the promo data for editing
         if user_id not in self.pending_messages:
             self.pending_messages[user_id] = {}
         
-        # Pre-populate with current content
         self.pending_messages[user_id] = {
-            "text": promo.get("text", ""),
-            "image_file_id": promo.get("image_file_id", ""),
-            "link": promo.get("link", ""),
-            "created_by": str(user_id),
-            "edit_id": promo_id
+            "edit_id": promo_id,
+            "current_promo": promo,
+            "edit_mode": "menu"
         }
         
-        # Show current content in editing mode
-        edit_text = f"📝 **Editing Promo {promo_id}**\n\n"
-        edit_text += f"**Current content:**\n{promo.get('text', 'No text')}"
-        
-        if promo.get("link"):
-            edit_text += f"\n\n🔗 Link: {promo.get('link')}"
-        
-        edit_text += "\n\n*Send a new message to replace this content, or use the buttons below:*"
+        # Show edit menu
+        edit_text = f"📝 **Edit Promo {promo_id}**\n\nWhat do you want to edit?"
         
         keyboard = [
             [
-                InlineKeyboardButton("📤 Keep Current & Publish", callback_data="admin_publish"),
-                InlineKeyboardButton("📄 Keep Current & Draft", callback_data="admin_draft")
+                InlineKeyboardButton("📝 Text", callback_data=f"edit_text_{promo_id}"),
+                InlineKeyboardButton("🔗 Link", callback_data=f"edit_link_{promo_id}")
             ],
             [
-                InlineKeyboardButton("← Back to Promo", callback_data="back_to_promo"),
-                InlineKeyboardButton("❌ Cancel Edit", callback_data="back_to_promo")
+                InlineKeyboardButton("🖼️ Image", callback_data=f"edit_image_{promo_id}"),
+                InlineKeyboardButton("🔄 Replace All", callback_data=f"edit_all_{promo_id}")
+            ],
+            [
+                InlineKeyboardButton("← Back to Promo", callback_data="back_to_promo")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        if promo.get("image_file_id"):
-            await update.callback_query.edit_message_media(
-                media=InputMediaPhoto(media=promo["image_file_id"], caption=edit_text),
-                reply_markup=reply_markup
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                text=edit_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+        await update.callback_query.edit_message_text(
+            text=edit_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
     
     async def toggle_promo_status_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE, promo_id: int):
         """Admin: Toggle promo status and update current message"""
