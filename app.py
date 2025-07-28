@@ -1,6 +1,9 @@
 import logging
 import os
 from telegram.ext import Application
+from dotenv import load_dotenv
+
+load_dotenv()  # This loads the .env file
 
 from bot import create_application
 
@@ -10,6 +13,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext._updater").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext._application").setLevel(logging.WARNING)
 
 def validate_environment():
     """Validate required environment variables"""
