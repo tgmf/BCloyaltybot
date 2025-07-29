@@ -4,8 +4,10 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 # Import auth functions
-from auth import get_user_info, check_admin_access
+from auth import get_user_info, verify_admin_access
 # Import stateless utilities (now in utils)
+from keyboard_builder import KeyboardBuilder
+from state_manager import BotState, StateManager
 from utils import (
     log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error,
     decode_callback_state, 
@@ -24,13 +26,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     logger.info(f"User {user_id} (@{username}) started bot")
     
-    # Check admin access (stateless - we'll embed this in callback data)
-    is_admin = await check_admin_access(content_manager, user_id, username)
+    # Check admin status and get verified_at timestamp
+    verified_at = await verify_admin_access(content_manager, user_id, username)
     
-    # Refresh content
-    await content_manager.refresh_cache()
-    
-    # Get active promos
+    # Get active promos (content_manager already refreshed in verify_admin_access)
     active_promos = content_manager.get_active_promos()
     logger.info(f"Found {len(active_promos)} active promos")
     
@@ -39,45 +38,59 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     if not active_promos:
         status_text += "\n\nNo promos available at the moment."
-        if is_admin:
+        if verified_at > 0:  # Is admin
             status_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
         
         await safe_send_message(update, text=status_text, parse_mode="Markdown")
         logger.warning("No active promos found")
         return
     
-    # Show welcome first
-    await safe_send_message(update, text=status_text, parse_mode="Markdown")
+    # Send welcome message and capture message ID
+    welcome_response = await safe_send_message(update, text=status_text, parse_mode="Markdown")
     
-    # Show first promo
-    await show_promo_by_index(update, context, content_manager, 0, is_admin, user_id)
+    if not welcome_response:
+        logger.error("Failed to send welcome message")
+        return
+    
+    # Create initial state with status message ID
+    state = StateManager.create_state(
+        promo_id=active_promos[0]["id"],  # First promo
+        verified_at=verified_at,
+        status_message_id=welcome_response.message_id,
+        promo_message_id=0  # Will be set when promo is sent
+    )
+    
+    # Show first promo with state
+    await show_promo_by_index(update, context, content_manager, 0, state)
 
 # ===== PROMO DISPLAY =====
 
-async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, is_admin: bool, user_id: int):
-    """Display promo at specific index"""
-    logger.info(f"SHOW_PROMO_BY_INDEX: index={index}, is_admin={is_admin}, user_id={user_id}")
+async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, state: BotState):
+    """Display promo at specific index using state management"""
+    logger.info(f"SHOW_PROMO_BY_INDEX: index={index}, promoId={state.promoId}, verifiedAt={state.verifiedAt}")
     
     active_promos = content_manager.get_active_promos()
     
-    if not active_promos or index < 0 or index >= len(active_promos):
+    if not active_promos:
         await safe_send_message(update, text="📭 No promos available.")
         return
+    
+    if index < 0 or index >= len(active_promos):
+        index = 0  # Reset to first promo if out of bounds
     
     promo = active_promos[index]
     logger.info(f"PROMO DATA: {promo}")
     
-    from keyboard_builder import KeyboardBuilder
-    reply_markup = KeyboardBuilder.user_navigation(
-        promo_id=promo["id"],
-        current_index=index, 
-        total_promos=len(active_promos),
-        is_admin=is_admin,
-        verified_at=0,  # TODO: get verified_at from auth
-        user_id=user_id,
-        status_message_id=None,  # TODO: get status message ID
-        is_list=False  # TODO: check if is_list 
+    # Update state with current promo ID
+    updated_state = BotState(
+        promoId=promo["id"],
+        verifiedAt=state.verifiedAt,
+        statusMessageId=state.statusMessageId,
+        promoMessageId=state.promoMessageId  # Will be updated after sending
     )
+    
+    # Build keyboard with updated state
+    reply_markup = KeyboardBuilder.user_navigation(updated_state, index, len(active_promos))
     
     # Send message
     try:
@@ -97,7 +110,10 @@ async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE
                     caption=promo["text"],
                     reply_markup=reply_markup
                 )
-                log_response(response.to_dict(), "SEND PHOTO MESSAGE")
+                if response:
+                    log_response(response.to_dict(), "SEND PHOTO MESSAGE")
+                    # Update state with new promo message ID
+                    updated_state.promoMessageId = response.message_id
         else:
             if update.callback_query:
                 logger.info("EDITING TEXT MESSAGE")
@@ -111,14 +127,17 @@ async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE
                     text=promo["text"],
                     reply_markup=reply_markup
                 )
-                log_response(response.to_dict(), "SEND TEXT MESSAGE")
+                if response:
+                    log_response(response.to_dict(), "SEND TEXT MESSAGE")
+                    # Update state with new promo message ID
+                    updated_state.promoMessageId = response.message_id
                 
     except TelegramError as e:
         error_msg = handle_telegram_error(e, "show_promo")
         logger.error(f"Failed to show promo: {e}")
         await safe_send_message(update, text=f"❌ {error_msg}")
 
-async def show_promo_with_status_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, is_admin: bool, user_id: int, status_message: str):
+async def show_promo_with_status_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, verified_at: 0, user_id: int, status_message: str):
     """Show promo with an additional status message"""
     active_promos = content_manager.get_active_promos()
     
@@ -136,8 +155,7 @@ async def show_promo_with_status_message(update: Update, context: ContextTypes.D
         promo_id=promo["id"],
         current_index=index,
         total_promos=len(active_promos),
-        is_admin=is_admin,
-        verified_at=0,  # TODO: get verified_at from auth
+        verified_at=verified_at,  # now passing verified_at
         user_id=user_id,
         status_message_id=None,  # TODO: get status message ID
         is_list=False  # TODO: check if is_list
@@ -179,12 +197,11 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Get target index from state
     target_index = state.get("idx", 0)
     
-    # Check if user is admin (fresh check since it's stateless)
+    # Check verified_at (fresh check since it's stateless)
     user_id, username, _ = get_user_info(update)
-    is_admin = await check_admin_access(content_manager, user_id, username)
-    
+    verified_at = await verify_admin_access(content_manager, user_id, username)
     # Show the target promo
-    await show_promo_by_index(update, context, content_manager, target_index, is_admin, user_id)
+    await show_promo_by_index(update, context, content_manager, target_index, verified_at, user_id)
 
 async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle visit link button"""

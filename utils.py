@@ -183,11 +183,6 @@ def get_current_promo_index_from_callback(callback_data: str) -> int:
     _, state = decode_callback_state(callback_data)
     return state.get("idx", 0)
 
-# ===== STATELESS KEYBOARD BUILDERS =====
-
-
-# ===== KEYBOARD BUILDERS (LEGACY - USE STATELESS VERSIONS ABOVE) =====
-
 # ===== MESSAGE FORMATTING =====
 
 def format_promo_text(promo: Dict, include_status: bool = False) -> str:
