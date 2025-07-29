@@ -48,16 +48,17 @@ class ContentManager:
         if not force and (now - self.last_update) < self.cache_timeout:
             return True
             
+        promos_error = None
+        auth_error = None
+
+        # Refresh promos cache
         try:
-            # Get promo messages
             promos_sheet = self.sheet.worksheet("promo_messages")
             promos_data = promos_sheet.get_all_records()
-
-            # Always clear cache before repopulating
             self.promos_cache = []
             if promos_data:
                 for row in promos_data:
-                    if row.get("id"):  # Skip empty rows
+                    if row.get("id"):
                         self.promos_cache.append({
                             "id": int(row["id"]),
                             "text": row.get("text", ""),
@@ -68,33 +69,35 @@ class ContentManager:
                             "created_by": row.get("created_by", ""),
                             "created_at": row.get("created_at", "")
                         })
-                # Sort by order if there are promos
                 self.promos_cache.sort(key=lambda x: x["order"])
-            # If promos_data is empty, promos_cache remains empty
-            
-            # Get authorized users
-            try:
-                auth_sheet = self.sheet.worksheet("authorized_users")
-                auth_data = auth_sheet.get_all_records()
-                
-                self.auth_cache = {}
+        except Exception as e:
+            promos_error = str(e)
+            logger.error(f"Failed to refresh promos cache: {e}")
+
+        # Refresh auth cache
+        try:
+            auth_sheet = self.sheet.worksheet("authorized_users")
+            auth_data = auth_sheet.get_all_records()
+            self.auth_cache = {}
+            if auth_data:
                 for row in auth_data:
-                    if row.get("phone_number"):
-                        self.auth_cache[row["phone_number"]] = {
+                    phone = row.get("phone_number")
+                    if phone is not None and phone != "":
+                        self.auth_cache[phone] = {
                             "user_id": row.get("user_id", ""),
                             "username": row.get("username", ""),
                             "added_at": row.get("added_at", "")
                         }
-            except Exception as e:
-                logger.warning(f"Auth sheet not found or error: {e}")
-            
-            self.last_update = now
-            logger.info(f"Cache refreshed: {len(self.promos_cache)} promos, {len(self.auth_cache)} auth users")
-            return True
-            
         except Exception as e:
-            logger.error(f"Failed to refresh cache: {e}")
+            auth_error = str(e)
+            logger.error(f"Failed to refresh auth cache: {e}")
+
+        self.last_update = now
+        logger.info(f"Cache refreshed: {len(self.promos_cache)} promos, {len(self.auth_cache)} auth users")
+        if promos_error or auth_error:
+            logger.error(f"Cache refresh errors - promos: {promos_error}, auth: {auth_error}")
             return False
+        return True
 
     def get_active_promos(self) -> List[Dict]:
         """Get all active promo messages"""
