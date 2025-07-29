@@ -13,9 +13,8 @@ from utils import (
     log_update, log_response, extract_message_components, validate_promo_data,
     safe_edit_message, safe_send_message, handle_telegram_error, get_status_emoji, truncate_text,
     format_admin_summary, format_promo_preview,
-    decode_callback_state, build_stateless_navigation_keyboard, 
-    build_admin_edit_keyboard, build_confirmation_keyboard,
-    validate_callback_state, encode_callback_state
+    decode_callback_state,
+    validate_callback_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,35 +74,20 @@ async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     logger.info(f"Found {len(all_promos)} promos to display")
     
     # Send detailed list with individual messages for each promo
+    from keyboard_builder import KeyboardBuilder
     for i, promo in enumerate(all_promos[:10]):  # Limit to 10 to avoid spam
         try:
             if not validate_promo_data(promo):
                 logger.error(f"Invalid promo data at index {i}: {promo}")
                 continue
-            
             promo_id = promo.get("id")
             promo_order = promo.get("order", 0)
             promo_status = promo.get("status", "unknown")
             promo_text = promo.get("text", "No text")
             promo_image_file_id = promo.get("image_file_id", "")
-            
             status_emoji = get_status_emoji(promo_status)
             display_text = f"{status_emoji} *ID {promo_id}* (Order: {promo_order})\n{truncate_text(promo_text, 100)}"
-            
-            # Add action buttons with stateless callbacks
-            current_time = int(__import__('time').time())
-            keyboard = [
-                [
-                    InlineKeyboardButton("📝 Edit",
-                        callback_data=encode_callback_state("adminEdit", promoId=promo_id, idx=i, ts=current_time)),
-                    InlineKeyboardButton("🔄 Toggle",
-                        callback_data=encode_callback_state("adminToggle", promoId=promo_id, idx=i, ts=current_time)),
-                    InlineKeyboardButton("🗑️ Delete",
-                        callback_data=encode_callback_state("adminDelete", promoId=promo_id, idx=i, ts=current_time))
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            reply_markup = KeyboardBuilder.admin_promo_actions(promo_id, i)
             if promo_image_file_id:
                 await update.message.reply_photo(
                     photo=promo_image_file_id,
@@ -117,7 +101,6 @@ async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-                
         except Exception as e:
             logger.error(f"Failed to send promo {i}: {e}")
             await safe_send_message(update, text=f"❌ Error displaying promo {i}: {str(e)}")
@@ -134,6 +117,7 @@ async def toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
     try:
         promo_id = int(context.args[0])
         await toggle_promo_status(update, context, content_manager, promo_id)
+        
     except ValueError:
         await safe_send_message(update, text="❌ Invalid promo ID. Please provide a number.")
 
@@ -190,12 +174,8 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Create summary text
     summary_text = format_admin_summary(all_promos, max_count=10)
     
-    # Back button with stateless callback
-    current_time = int(__import__('time').time())
-    keyboard = [[InlineKeyboardButton("← Back to Promo", 
-                 callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time))]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.admin_back_to_promo(current_index)
     await safe_edit_message(update, text=summary_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
@@ -248,9 +228,8 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
     
-    # Show confirmation with stateless callback
-    reply_markup = build_confirmation_keyboard("Delete", promo_id, current_index)
-    
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.admin_confirmation("Delete", promo_id, current_index)
     await safe_edit_message(
         update,
         text=f"🗑️ **Delete Promo {promo_id}?**\n\nThis action cannot be undone.",
@@ -316,11 +295,78 @@ async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "current_index": current_index
     }
     
-    # Show edit menu
-    edit_text = f"📝 **Edit Promo {promo_id}**\n\nWhat do you want to edit?"
-    reply_markup = build_admin_edit_keyboard(promo_id, current_index)
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.admin_promo_actions(promo_id, current_index)
+    try:
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+    except TelegramError as e:
+        error_msg = handle_telegram_error(e, "edit_promo_inline")
+        logger.error(f"Failed to update edit keyboard: {e}")
+        await safe_send_message(update, text=f"❌ {error_msg}")
     
-    await safe_edit_message(update, text=edit_text, reply_markup=reply_markup, parse_mode="Markdown")
+async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
+    """Admin: Handle text editing for specific promo"""
+    query = update.callback_query
+    action, state = decode_callback_state(query.data)
+    
+    if not is_admin_callback_valid(update):
+        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
+        return
+    
+    promo_id = state.get("promoId")
+    current_index = state.get("idx", 0)
+    status_msg_id = state.get("statusMessageId")  # Get status message ID from callback
+    
+    try:
+        promo_id = int(promo_id)
+    except (TypeError, ValueError):
+        await safe_edit_message(update, text=f"❌ Invalid promo_id: {promo_id}")
+        return
+    
+    # Get the promo data
+    all_promos = content_manager.get_all_promos()
+    promo = next((p for p in all_promos if int(p["id"]) == promo_id), None)
+    
+    if not promo:
+        await safe_edit_message(update, text=f"❌ Promo {promo_id} not found")
+        return
+    
+    # Store editing context in pending_messages_store
+    user_id, username, first_name = get_user_info(update)
+    pending_messages_store[user_id] = {
+        "edit_id": promo_id,
+        "current_promo": promo,
+        "edit_mode": "text_only",
+        "current_index": current_index,
+        "status_msg_id": status_msg_id  # Store for later use
+    }
+    
+    # Edit the status message to show instruction
+    instruction_text = f"📝 Send new text for promo {promo_id}, {first_name}:"
+    
+    if status_msg_id:
+        try:
+            await update.effective_chat.edit_message_text(
+                message_id=status_msg_id,
+                text=instruction_text,
+                parse_mode="Markdown"
+            )
+            logger.info(f"Updated status message {status_msg_id} with edit instruction")
+        except Exception as e:
+            logger.error(f"Failed to edit status message {status_msg_id}: {e}")
+            # Fallback: send new message
+            await update.effective_chat.send_message(
+                text=instruction_text,
+                parse_mode="Markdown"
+            )
+    else:
+        logger.warning("No status message ID in callback, sending new message")
+        await update.effective_chat.send_message(
+            text=instruction_text,
+            parse_mode="Markdown"
+        )
+    
+    logger.info(f"Text edit mode activated for promo {promo_id} by user {user_id}")
 
 async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle back to promo button"""
@@ -390,24 +436,8 @@ async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE,
     edit_id = pending.get("edit_id")
     preview_text = format_promo_preview(pending, edit_id)
     
-    # Build preview keyboard with stateless callbacks
-    current_time = int(__import__('time').time())
-    keyboard = [
-        [
-            InlineKeyboardButton("📤 Publish", 
-                callback_data=encode_callback_state("admin_publish", user_id=user_id, ts=current_time)),
-            InlineKeyboardButton("📄 Draft", 
-                callback_data=encode_callback_state("admin_draft", user_id=user_id, ts=current_time))
-        ],
-        [
-            InlineKeyboardButton("📝 Edit", 
-                callback_data=encode_callback_state("admin_edit_text", user_id=user_id, ts=current_time)),
-            InlineKeyboardButton("❌ Cancel", 
-                callback_data=encode_callback_state("admin_cancel", user_id=user_id, ts=current_time))
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.admin_preview(user_id)
     try:
         if pending["image_file_id"]:
             await update.message.reply_photo(
@@ -548,6 +578,11 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         await toggle_promo_status_inline(update, context, content_manager)
     elif action == "adminDelete":
         await delete_promo_inline(update, context, content_manager)
+    elif action == "editText":
+        await edit_text_handler(update, context, content_manager)
+    elif action.startswith("edit"):
+        # Placeholder: handle editAll, editText, editLink, editImage, etc.
+        await query.message.reply_text("📝 Edit action selected. Implement handler for: " + action)
     else:
         logger.warning(f"Unknown admin callback action: {action}")
 

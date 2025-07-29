@@ -57,46 +57,90 @@ def log_response(response_data: dict, description: str = ""):
 
 # ===== STATELESS STATE MANAGEMENT =====
 
+REQUIRED_STATE_FIELDS = ["idx", "promoId", "verifiedAt", "userId", "statusMessageId", "timestamp", "isList"]
+
+# Updated encode_callback_state function with shorter keys
 def encode_callback_state(action: str, **state_vars) -> str:
     """
-    Encode action and state variables into callback data
-    Format: action_var1_value1_var2_value2
-    Example: next_idx_2_admin_1_verified_1722176789
+    Encode action and state variables into callback data with short keys
+    Short key mappings:
+    - idx -> i (index)
+    - promoId -> p (promo ID)  
+    - ts -> t (timestamp)
+    - statusMessageId -> s (status message ID)
+    - userId -> u (user ID)
     """
-    # Use camelCase for keys and action
+    # Key mapping for shorter names
+    key_mapping = {
+        "idx": "i",
+        "promoId": "p", 
+        "ts": "t",
+        "statusMessageId": "s",
+        "userId": "u",
+        "isList": "l",
+        "verifiedAt": "v"
+    }
+    
+    # Use camelCase for action
     def to_camel(s):
         parts = s.split('_')
         return parts[0] + ''.join(word.capitalize() for word in parts[1:]) if len(parts) > 1 else s
 
     action_camel = to_camel(action)
     parts = [action_camel]
+    
     for key, value in state_vars.items():
-        parts.extend([to_camel(str(key)), str(value)])
+        short_key = key_mapping.get(key, key)
+        parts.extend([short_key, str(value)])
+    
     callback_data = "_".join(parts)
+    
     if len(callback_data) > 64:
         # If too long, use JSON encoding with compression
-        state_json = json.dumps({"a": action_camel, **{to_camel(str(k)): v for k, v in state_vars.items()}}, separators=(',', ':'))
+        state_json = json.dumps({
+            "a": action_camel, 
+            **{key_mapping.get(k, k): v for k, v in state_vars.items()}
+        }, separators=(',', ':'))
         return f"state_{state_json}"[:64]
+    
     return callback_data
 
 def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
     """
     Decode callback data back into action and state variables
-    Returns: (action, state_dict)
+    Handles both short keys and full keys for backward compatibility
     """
+    # Reverse key mapping
+    reverse_mapping = {
+        "i": "idx",
+        "p": "promoId",
+        "t": "ts", 
+        "s": "statusMessageId",
+        "u": "userId",
+        "l": "isList",
+        "v": "verifiedAt",
+    }
+    
     if callback_data.startswith("state_"):
         # JSON encoded state
         try:
             state_json = callback_data[6:]
             data = json.loads(state_json)
             action = data.pop("a")
-            return action, data
+            # Convert short keys back to full keys
+            expanded_state = {}
+            for k, v in data.items():
+                full_key = reverse_mapping.get(k, k)
+                expanded_state[full_key] = v
+            return action, expanded_state
         except (json.JSONDecodeError, KeyError):
             return callback_data, {}
-    # CamelCase action and keys, underscore-separated
+    
+    # Simple underscore-separated format
     parts = callback_data.split("_")
     if len(parts) < 1:
         return callback_data, {}
+    
     action = parts[0]
     state = {}
     i = 1
@@ -104,31 +148,35 @@ def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
         if i + 1 < len(parts):
             key = parts[i]
             value = parts[i + 1]
+            
+            # Convert short key to full key
+            full_key = reverse_mapping.get(key, key)
+            
             try:
                 if value.isdigit():
-                    state[key] = int(value)
+                    state[full_key] = int(value)
                 elif value.replace(".", "").isdigit():
-                    state[key] = float(value)
+                    state[full_key] = float(value)
                 elif value.lower() in ("true", "false"):
-                    state[key] = value.lower() == "true"
+                    state[full_key] = value.lower() == "true"
                 else:
-                    state[key] = value
+                    state[full_key] = value
             except:
-                state[key] = value
+                state[full_key] = value
             i += 2
         else:
             i += 1
+    
     return action, state
 
 def validate_callback_state(callback_data: str, max_age: int = 3600) -> bool:
     """Validate that callback state is not too old"""
     _, state = decode_callback_state(callback_data)
-    
-    if "ts" not in state:
-        return True  # No timestamp, assume valid
-    
-    current_time = int(time.time())
-    return (current_time - state["ts"]) <= max_age
+    # Validate all required fields are present and log missing ones
+    missing_fields = [field for field in REQUIRED_STATE_FIELDS if field not in state]
+    if missing_fields:
+        logger.warning(f"Callback data missing required fields: {missing_fields} | data: {callback_data}")
+        return False
 
 def get_current_promo_index_from_callback(callback_data: str) -> int:
     """Extract current promo index from callback data"""
@@ -137,114 +185,8 @@ def get_current_promo_index_from_callback(callback_data: str) -> int:
 
 # ===== STATELESS KEYBOARD BUILDERS =====
 
-def build_stateless_navigation_keyboard(promo_id: int, current_index: int, total_promos: int, is_admin: bool = False) -> InlineKeyboardMarkup:
-    """Build navigation keyboard with embedded state"""
-    keyboard = []
-    
-    # Calculate next/prev indices with looping
-    prev_index = (current_index - 1) % total_promos
-    next_index = (current_index + 1) % total_promos
-    
-    # Add timestamp for state validation
-    current_time = int(time.time())
-    
-    # Navigation row
-    nav_buttons = []
-    nav_buttons.append(InlineKeyboardButton(
-        "← Previous",
-        callback_data=encode_callback_state("prev", idx=current_index, ts=current_time)
-    ))
-    nav_buttons.append(InlineKeyboardButton(
-        "🔗 Visit Link",
-        callback_data=encode_callback_state("visit", promoId=promo_id, idx=current_index, ts=current_time)
-    ))
-    nav_buttons.append(InlineKeyboardButton(
-        "Next →",
-        callback_data=encode_callback_state("next", idx=next_index, ts=current_time)
-    ))
-    keyboard.append(nav_buttons)
-    
-    # Admin panel row
-    if is_admin:
-        admin_buttons = []
-        admin_buttons.append(InlineKeyboardButton(
-            "📋 List",
-            callback_data=encode_callback_state("adminList", idx=current_index, ts=current_time)
-        ))
-        admin_buttons.append(InlineKeyboardButton(
-            "📝 Edit",
-            callback_data=encode_callback_state("adminEdit", promoId=promo_id, idx=current_index, ts=current_time)
-        ))
-        admin_buttons.append(InlineKeyboardButton(
-            "🔄 Toggle",
-            callback_data=encode_callback_state("adminToggle", promoId=promo_id, idx=current_index, ts=current_time)
-        ))
-        admin_buttons.append(InlineKeyboardButton(
-            "🗑️ Delete",
-            callback_data=encode_callback_state("adminDelete", promoId=promo_id, idx=current_index, ts=current_time)
-        ))
-        keyboard.append(admin_buttons)
-    
-    return InlineKeyboardMarkup(keyboard)
-
-def build_admin_edit_keyboard(promo_id: int, current_index: int) -> InlineKeyboardMarkup:
-    """Build edit menu keyboard with state"""
-    current_time = int(time.time())
-    
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "📝 Text",
-                callback_data=encode_callback_state("editText", promoId=promo_id, idx=current_index, ts=current_time)
-            ),
-            InlineKeyboardButton(
-                "🔗 Link",
-                callback_data=encode_callback_state("editLink", promoId=promo_id, idx=current_index, ts=current_time)
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🖼️ Image",
-                callback_data=encode_callback_state("editImage", promoId=promo_id, idx=current_index, ts=current_time)
-            ),
-            InlineKeyboardButton(
-                "🔄 Replace All",
-                callback_data=encode_callback_state("editAll", promoId=promo_id, idx=current_index, ts=current_time)
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "← Back to Promo",
-                callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time)
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_confirmation_keyboard(action: str, promo_id: int, current_index: int) -> InlineKeyboardMarkup:
-    """Build confirmation keyboard with state"""
-    current_time = int(time.time())
-    
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                f"✅ Yes, {action}",
-                callback_data=encode_callback_state(f"confirm{action.title()}", promoId=promo_id, idx=current_index, ts=current_time)
-            ),
-            InlineKeyboardButton(
-                "❌ Cancel",
-                callback_data=encode_callback_state("backToPromo", idx=current_index, ts=current_time)
-            )
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
 
 # ===== KEYBOARD BUILDERS (LEGACY - USE STATELESS VERSIONS ABOVE) =====
-
-def build_back_button_keyboard() -> InlineKeyboardMarkup:
-    """Build simple back button keyboard (legacy - for backward compatibility)"""
-    keyboard = [[InlineKeyboardButton("← Back to Promo", callback_data="back_to_promo")]]
-    return InlineKeyboardMarkup(keyboard)
 
 # ===== MESSAGE FORMATTING =====
 

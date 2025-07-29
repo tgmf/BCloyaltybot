@@ -8,8 +8,8 @@ from auth import get_user_info, check_admin_access
 # Import stateless utilities (now in utils)
 from utils import (
     log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error,
-    decode_callback_state, build_stateless_navigation_keyboard, 
-    validate_callback_state, get_current_promo_index_from_callback
+    decode_callback_state, 
+    validate_callback_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,19 +35,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     logger.info(f"Found {len(active_promos)} active promos")
     
     # Send welcome message
-    welcome_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
+    status_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
     
     if not active_promos:
-        welcome_text += "\n\nNo promos available at the moment."
+        status_text += "\n\nNo promos available at the moment."
         if is_admin:
-            welcome_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
+            status_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
         
-        await safe_send_message(update, text=welcome_text, parse_mode="Markdown")
+        await safe_send_message(update, text=status_text, parse_mode="Markdown")
         logger.warning("No active promos found")
         return
     
     # Show welcome first
-    await safe_send_message(update, text=welcome_text, parse_mode="Markdown")
+    await safe_send_message(update, text=status_text, parse_mode="Markdown")
     
     # Show first promo
     await show_promo_by_index(update, context, content_manager, 0, is_admin, user_id)
@@ -67,12 +67,16 @@ async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE
     promo = active_promos[index]
     logger.info(f"PROMO DATA: {promo}")
     
-    # Build stateless keyboard with embedded state
-    reply_markup = build_stateless_navigation_keyboard(
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.user_navigation(
         promo_id=promo["id"],
         current_index=index, 
         total_promos=len(active_promos),
-        is_admin=is_admin
+        is_admin=is_admin,
+        verified_at=0,  # TODO: get verified_at from auth
+        user_id=user_id,
+        status_message_id=None,  # TODO: get status message ID
+        is_list=False  # TODO: check if is_list 
     )
     
     # Send message
@@ -127,12 +131,16 @@ async def show_promo_with_status_message(update: Update, context: ContextTypes.D
     # Add status message to promo text
     display_text = f"{status_message}\n\n{promo['text']}"
     
-    # Build stateless keyboard
-    reply_markup = build_stateless_navigation_keyboard(
+    from keyboard_builder import KeyboardBuilder
+    reply_markup = KeyboardBuilder.user_navigation(
         promo_id=promo["id"],
         current_index=index,
         total_promos=len(active_promos),
-        is_admin=is_admin
+        is_admin=is_admin,
+        verified_at=0,  # TODO: get verified_at from auth
+        user_id=user_id,
+        status_message_id=None,  # TODO: get status message ID
+        is_list=False  # TODO: check if is_list
     )
     
     # Send message
@@ -213,13 +221,3 @@ async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     else:
         await query.message.reply_text("❌ Link not found or unavailable.")
         logger.warning(f"Link not found for promo {promo_id}")
-
-# ===== UTILITY FUNCTIONS =====
-
-async def get_admin_status_for_user(content_manager, user_id: int, username: str = "") -> bool:
-    """Get admin status for user (stateless)"""
-    return await check_admin_access(content_manager, user_id, username)
-
-def get_promo_index_from_callback(callback_data: str) -> int:
-    """Extract promo index from callback data"""
-    return get_current_promo_index_from_callback(callback_data)
