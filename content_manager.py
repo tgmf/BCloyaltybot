@@ -52,23 +52,25 @@ class ContentManager:
             # Get promo messages
             promos_sheet = self.sheet.worksheet("promo_messages")
             promos_data = promos_sheet.get_all_records()
-            
+
+            # Always clear cache before repopulating
             self.promos_cache = []
-            for row in promos_data:
-                if row.get("id"):  # Skip empty rows
-                    self.promos_cache.append({
-                        "id": int(row["id"]),
-                        "text": row.get("text", ""),
-                        "image_file_id": row.get("image_file_id", ""),
-                        "link": row.get("link", ""),
-                        "order": int(row.get("order", 0)),
-                        "status": row.get("status", "draft"),
-                        "created_by": row.get("created_by", ""),
-                        "created_at": row.get("created_at", "")
-                    })
-            
-            # Sort by order
-            self.promos_cache.sort(key=lambda x: x["order"])
+            if promos_data:
+                for row in promos_data:
+                    if row.get("id"):  # Skip empty rows
+                        self.promos_cache.append({
+                            "id": int(row["id"]),
+                            "text": row.get("text", ""),
+                            "image_file_id": row.get("image_file_id", ""),
+                            "link": row.get("link", ""),
+                            "order": int(row.get("order", 0)),
+                            "status": row.get("status", "draft"),
+                            "created_by": row.get("created_by", ""),
+                            "created_at": row.get("created_at", "")
+                        })
+                # Sort by order if there are promos
+                self.promos_cache.sort(key=lambda x: x["order"])
+            # If promos_data is empty, promos_cache remains empty
             
             # Get authorized users
             try:
