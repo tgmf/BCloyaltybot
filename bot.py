@@ -7,7 +7,7 @@ from telegram.ext import (
 from telegram import Update
 
 from content_manager import ContentManager
-from user_handlers import start_command, navigation_handler, visit_link_handler
+from user_handlers import start_command, navigation_handler
 from admin_handlers import (
     list_promos_command, toggle_command, delete_command, edit_command,
     admin_message_handler, admin_callback_handler, back_to_promo_handler
@@ -94,14 +94,6 @@ def register_all_handlers(application: Application, content_manager: ContentMana
         CallbackQueryHandler(
             lambda update, context: navigation_handler(update, context, content_manager),
             pattern="^(prev|next)"
-        )
-    )
-    
-    # Visit link button - stateless with embedded state
-    application.add_handler(
-        CallbackQueryHandler(
-            lambda update, context: visit_link_handler(update, context, content_manager),
-            pattern="^visit"
         )
     )
     
@@ -197,8 +189,6 @@ async def handle_stateless_callback(update: Update, context: ContextTypes.DEFAUL
         await admin_callback_handler(update, context, content_manager)
     elif action in ["prev", "next"]:
         await navigation_handler(update, context, content_manager)
-    elif action == "visit":
-        await visit_link_handler(update, context, content_manager)
     elif action == "backToPromo":
         await back_to_promo_handler(update, context, content_manager)
     else:

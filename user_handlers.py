@@ -96,8 +96,11 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     
     logger.info(f"PROMO DATA: {promo}")
     
-    # Build keyboard with current state
-    reply_markup = KeyboardBuilder.user_navigation(state)
+    # Extract link for keyboard
+    promo_link = promo.get("link", "")
+    
+    # Build keyboard with current state and link
+    reply_markup = KeyboardBuilder.user_navigation(state, promo_link)
     
     if state.promoMessageId:
         # Editing existing message - use media/text format
@@ -229,37 +232,6 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     # Show the target promo with updated state
     await show_promo(update, context, content_manager, updated_state)
-
-async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
-    """Handle visit link button"""
-    log_update(update, "VISIT LINK")
-    
-    query = update.callback_query
-    await query.answer()
-    
-    # Decode state from callback data
-    action, state = StateManager.decode_callback_data(query.data)
-    
-    promo_id = state.get("promoId")
-    if not promo_id:
-        await query.message.reply_text("❌ Invalid link request.")
-        return
-    # Get promo by ID (ensure int comparison)
-    active_promos = content_manager.get_active_promos()
-    target_promo = None
-    for promo in active_promos:
-        if str(promo["id"]) == str(promo_id):
-            target_promo = promo
-            break
-    if target_promo and target_promo.get("link"):
-        await query.message.reply_text(
-            f"🔗 **Visit Link:**\n{target_promo['link']}",
-            parse_mode="Markdown"
-        )
-        logger.info(f"User visited link for promo {promo_id}: {target_promo['link']}")
-    else:
-        await query.message.reply_text("❌ Link not found or unavailable.")
-        logger.warning(f"Link not found for promo {promo_id}")
         
 # async def update_chat(update, context, content_manager, state):
     

@@ -5,24 +5,33 @@ class KeyboardBuilder:
     """Centralized keyboard builder using stateless state management system"""
     
     @staticmethod
-    def user_navigation(state: BotState):
+    def user_navigation(state: BotState, promo_link: str = "") -> InlineKeyboardMarkup:
         """
         Build navigation keyboard for users (and admins in user mode)
         """
         keyboard = []
+
+        # Create visit link button - URL if link exists, disabled if not
+        if promo_link:
+            visit_button = InlineKeyboardButton(
+                "🔗&nbsp;&nbsp;Перейти",
+                url=promo_link
+            )
+        else:
+            visit_button = InlineKeyboardButton(
+                "🔗&nbsp;&nbsp;Скоро",
+                callback_data="disabled"
+            )
     
         # Navigation buttons - use current state, handlers will update promoId
         nav_buttons = [
             InlineKeyboardButton(
-                "← Previous",
+                "《",
                 callback_data=StateManager.encode_state_for_callback("prev", state)
             ),
+            visit_button,
             InlineKeyboardButton(
-                "🔗 Visit Link",
-                callback_data=StateManager.encode_state_for_callback("visit", state)
-            ),
-            InlineKeyboardButton(
-                "Next →",
+                "》",
                 callback_data=StateManager.encode_state_for_callback("next", state)
             )
         ]
