@@ -59,13 +59,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     )
     
     # Show first promo with state
-    await show_promo_by_index(update, context, content_manager, 0, state)
+    await show_promo(update, context, content_manager, 0, state)
 
 # ===== PROMO DISPLAY =====
 
-async def show_promo_by_index(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, state: BotState):
+async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, state: BotState):
     """Display promo at specific index using state management"""
-    logger.info(f"SHOW_PROMO_BY_INDEX: index={index}, promoId={state.promoId}, verifiedAt={state.verifiedAt}")
+    logger.info(f"show_promo: index={index}, promoId={state.promoId}, verifiedAt={state.verifiedAt}")
     
     active_promos = content_manager.get_active_promos()
     
@@ -194,7 +194,7 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     user_id, username, _ = get_user_info(update)
     verified_at = await verify_admin_access(content_manager, user_id, username)
     # Show the target promo
-    await show_promo_by_index(update, context, content_manager, target_index, verified_at, user_id)
+    await show_promo(update, context, content_manager, target_index, verified_at, user_id)
 
 async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle visit link button"""

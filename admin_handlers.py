@@ -7,7 +7,7 @@ from telegram.error import TelegramError
 # Import auth functions (mainly for get_user_info and logging)
 from auth import get_user_info, log_admin_action, check_admin_access
 # Import user handlers for shared functions
-from user_handlers import show_promo_by_index, show_promo_with_status_message
+from user_handlers import show_promo, show_promo_with_status_message
 # Import stateless utilities (now in utils)
 from utils import (
     log_update, log_response, extract_message_components, validate_promo_data,
@@ -56,7 +56,7 @@ async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, co
     
     # if verified_at > 0:
     #     await update.message.reply_text(f"✅ Welcome {first_name}! You now have admin access.")
-    #     # Show first promo with admin controls using existing show_promo_by_index
+    #     # Show first promo with admin controls using existing show_promo
     # else:
     #     await update.message.reply_text("❌ Admin access not found. Contact administrator.")
 
@@ -368,7 +368,7 @@ async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TY
     is_admin = await check_admin_access(content_manager, user_id, username)
     
     # Return to promo view
-    await show_promo_by_index(update, context, content_manager, current_index, is_admin, user_id)
+    await show_promo(update, context, content_manager, current_index, is_admin, user_id)
 
 # ===== MESSAGE CREATION AND EDITING =====
 
@@ -561,7 +561,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     elif action == "editText":
         await edit_text_handler(update, context, content_manager)
     elif action.startswith("edit"):
-        # Placeholder: handle editAll, editText, editLink, editImage, etc.
+        # Placeholder: handle editAll, editLink, editImage, etc.
         await query.message.reply_text("📝 Edit action selected. Implement handler for: " + action)
     else:
         logger.warning(f"Unknown admin callback action: {action}")

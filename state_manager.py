@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Tuple
 from dataclasses import dataclass
 
@@ -27,6 +28,33 @@ class StateManager:
             statusMessageId=status_message_id,
             promoMessageId=promo_message_id
         )
+        
+    @staticmethod
+    def update_state(state: BotState, **updates) -> BotState:
+        """
+        Create a new state with updated fields
+        
+        Args:
+            state: Original BotState
+            **updates: Fields to update (promo_id, verified_at, status_message_id, promo_message_id)
+        
+        Returns:
+            New BotState with updated fields
+        """
+        # Create new state with original values
+        new_state = BotState(
+            promoId=updates.get('promo_id', state.promoId),
+            verifiedAt=updates.get('verified_at', state.verifiedAt),
+            statusMessageId=updates.get('status_message_id', state.statusMessageId),
+            promoMessageId=updates.get('promo_message_id', state.promoMessageId)
+        )
+        
+        # Validate the new state
+        if not StateManager.validate_state(new_state):
+            logger.error(f"Invalid state created in update_state: {new_state}")
+            return state  # Return original state if validation fails
+        
+        return new_state
     
     @staticmethod
     def encode_state_for_callback(action: str, state: BotState) -> str:
@@ -107,8 +135,18 @@ class StateManager:
     
     @staticmethod
     def validate_state(state: BotState) -> bool:
-        """Validate state has minimum required fields"""
-        return isinstance(state, BotState)
+        """Minimal validation to help during development"""
+        # Check for negative IDs (likely encoding/decoding errors)
+        if state.promoId < 0 or state.statusMessageId < 0 or state.promoMessageId < 0:
+            logger.warning(f"Negative IDs in state: {state}")
+            return False
+        
+        # Check for unreasonable verifiedAt (future timestamp)
+        if state.verifiedAt > int(time.time()) + 86400:  # Allow 1 day future for clock skew
+            logger.warning(f"Future verifiedAt in state: {state}")
+            return False
+        
+        return True
     
     # Helper methods
     

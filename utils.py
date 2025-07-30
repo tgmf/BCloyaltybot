@@ -220,3 +220,21 @@ def format_promo_preview(pending_data: Dict, edit_id: Optional[int] = None) -> s
     
     # Don't add any preview indicators - show exactly as it will appear
     return preview_text
+
+    ## ===== STATE MANAGEMENT =====
+
+def get_current_promo_index(promo_id: int, promos: List[Dict]) -> int:
+    """
+    Find the index of a promo by its ID in the promos list
+    Returns 0 if promo not found (fallback to first promo)
+    """
+    if not promos:
+        return 0
+    
+    for i, promo in enumerate(promos):
+        if promo.get("id") == promo_id:
+            return i
+    
+    # Promo not found, return 0 as fallback
+    logger.warning(f"Promo ID {promo_id} not found in promos list, falling back to index 0")
+    return 0
