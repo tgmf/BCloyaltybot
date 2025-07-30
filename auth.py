@@ -26,7 +26,7 @@ def is_verification_expired(verified_at: int) -> bool:
 
 async def verify_admin_access(content_manager, user_id: int, username: str = "") -> int:
     """
-    Checks admin status and returns verifiedAt timestamp if successful, else 0.
+    Checks admin status and returns verified_at timestamp if successful, else 0.
     Call this on /start or /sign_in, and again only if verification expires.
     """
     if await check_admin_access(content_manager, user_id, username):
@@ -68,15 +68,15 @@ async def refresh_admin_verification(state, content_manager, user_id: int, usern
     Refresh admin verification if expired
     Returns updated state
     """
-    if state.verifiedAt == 0:
+    if state.verified_at == 0:
         # Not admin, don't check
         return state
-    if not is_verification_expired(state.verifiedAt):
+    if not is_verification_expired(state.verified_at):
         # Still valid
         return state
     # Verification expired, re-check
     new_verified_at = await verify_admin_access(content_manager, user_id, username)
-    state = StateManager.update_state(state, verifiedAt = new_verified_at)
+    state = StateManager.update_state(state, verified_at = new_verified_at)
     if new_verified_at == 0:
         logger.info(f"Admin access revoked for user {user_id}")
     else:

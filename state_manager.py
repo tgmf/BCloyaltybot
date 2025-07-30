@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 class BotState:
     """Centralized bot state for stateless operation"""
     
-    promoId: int = 0              # Current promo DB ID
-    verifiedAt: int = 0           # 0 = not admin, timestamp = admin verified  
-    statusMessageId: int = 0      # Status/instruction message ID (0 for users)
-    promoMessageId: int = 0       # Current promo display message ID (0 for users)
+    promo_id: int = 0              # Current promo DB ID
+    verified_at: int = 0           # 0 = not admin, timestamp = admin verified
+    status_message_id: int = 0      # Status/instruction message ID (0 for users)
+    promo_message_id: int = 0       # Current promo display message ID (0 for users)
 
 class StateManager:
     """Stateless utility for state encoding/decoding - no global storage"""
@@ -23,10 +23,10 @@ class StateManager:
                     status_message_id: int = 0, promo_message_id: int = 0) -> BotState:
         """Create bot state with given parameters"""
         return BotState(
-            promoId=promo_id,
-            verifiedAt=verified_at,
-            statusMessageId=status_message_id,
-            promoMessageId=promo_message_id
+            promo_id=promo_id,
+            verified_at=verified_at,
+            status_message_id=status_message_id,
+            promo_message_id=promo_message_id
         )
         
     @staticmethod
@@ -43,10 +43,10 @@ class StateManager:
         """
         # Create new state with original values
         new_state = BotState(
-            promoId=updates.get('promo_id', state.promoId),
-            verifiedAt=updates.get('verified_at', state.verifiedAt),
-            statusMessageId=updates.get('status_message_id', state.statusMessageId),
-            promoMessageId=updates.get('promo_message_id', state.promoMessageId)
+            promo_id=updates.get('promo_id', state.promo_id),
+            verified_at=updates.get('verified_at', state.verified_at),
+            status_message_id=updates.get('status_message_id', state.status_message_id),
+            promo_message_id=updates.get('promo_message_id', state.promo_message_id)
         )
         
         # Validate the new state
@@ -69,19 +69,19 @@ class StateManager:
         parts = [action_camel]
         
         # Core data (always include if non-zero)
-        if state.promoId > 0:
-            parts.extend(["p", StateManager._encode_number(state.promoId)])
+        if state.promo_id > 0:
+            parts.extend(["p", StateManager._encode_number(state.promo_id)])
         
         # Admin data (only if admin)
-        if state.verifiedAt > 0:
-            parts.extend(["v", StateManager._encode_number(state.verifiedAt)])
-            
-            if state.statusMessageId > 0:
-                parts.extend(["s", StateManager._encode_number(state.statusMessageId)])
-            
-            if state.promoMessageId > 0:
-                parts.extend(["m", StateManager._encode_number(state.promoMessageId)])
-        
+        if state.verified_at > 0:
+            parts.extend(["v", StateManager._encode_number(state.verified_at)])
+
+            if state.status_message_id > 0:
+                parts.extend(["s", StateManager._encode_number(state.status_message_id)])
+
+            if state.promo_message_id > 0:
+                parts.extend(["m", StateManager._encode_number(state.promo_message_id)])
+
         # Join with underscores
         callback_data = "_".join(parts)
         
@@ -117,13 +117,13 @@ class StateManager:
                 
                 try:
                     if key == "p":
-                        state.promoId = StateManager._decode_number(value)
+                        state.promo_id = StateManager._decode_number(value)
                     elif key == "v":
-                        state.verifiedAt = StateManager._decode_number(value)
+                        state.verified_at = StateManager._decode_number(value)
                     elif key == "s":
-                        state.statusMessageId = StateManager._decode_number(value)
+                        state.status_message_id = StateManager._decode_number(value)
                     elif key == "m":
-                        state.promoMessageId = StateManager._decode_number(value)
+                        state.promo_message_id = StateManager._decode_number(value)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Failed to parse callback key {key}={value}: {e}")
                 
@@ -137,13 +137,13 @@ class StateManager:
     def validate_state(state: BotState) -> bool:
         """Minimal validation to help during development"""
         # Check for negative IDs (likely encoding/decoding errors)
-        if state.promoId < 0 or state.statusMessageId < 0 or state.promoMessageId < 0:
+        if state.promo_id < 0 or state.status_message_id < 0 or state.promo_message_id < 0:
             logger.warning(f"Negative IDs in state: {state}")
             return False
-        
-        # Check for unreasonable verifiedAt (future timestamp)
-        if state.verifiedAt > int(time.time()) + 86400:  # Allow 1 day future for clock skew
-            logger.warning(f"Future verifiedAt in state: {state}")
+
+        # Check for unreasonable verified_at (future timestamp)
+        if state.verified_at > int(time.time()) + 86400:  # Allow 1 day future for clock skew
+            logger.warning(f"Future verified_at in state: {state}")
             return False
         
         return True
@@ -182,16 +182,16 @@ class StateManager:
     def _encode_json_compressed(action: str, state: BotState) -> str:
         """Fallback: encode as compressed JSON (max 58 chars after 'state_')"""
         data = {"a": action}
-        
-        if state.promoId > 0:
-            data["p"] = state.promoId
-        if state.verifiedAt > 0:
-            data["v"] = state.verifiedAt
-        if state.statusMessageId > 0:
-            data["s"] = state.statusMessageId
-        if state.promoMessageId > 0:
-            data["m"] = state.promoMessageId
-        
+
+        if state.promo_id > 0:
+            data["p"] = state.promo_id
+        if state.verified_at > 0:
+            data["v"] = state.verified_at
+        if state.status_message_id > 0:
+            data["s"] = state.status_message_id
+        if state.promo_message_id > 0:
+            data["m"] = state.promo_message_id
+
         json_str = json.dumps(data, separators=(',', ':'))
         return f"state_{json_str}"[:64]
     
@@ -204,10 +204,10 @@ class StateManager:
             
             action = data.get("a", "")
             state = BotState(
-                promoId=data.get("p", 0),
-                verifiedAt=data.get("v", 0),
-                statusMessageId=data.get("s", 0),
-                promoMessageId=data.get("m", 0)
+                promo_id=data.get("p", 0),
+                verified_at=data.get("v", 0),
+                status_message_id=data.get("s", 0),
+                promo_message_id=data.get("m", 0)
             )
             
             return action, state

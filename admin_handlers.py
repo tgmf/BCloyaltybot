@@ -187,7 +187,7 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
-    promo_id = state.get("promoId")
+    promo_id = state.get("promo_id")
     current_index = state.get("idx", 0)
     try:
         promo_id = int(promo_id)
@@ -221,7 +221,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
-    promo_id = state.get("promoId")
+    promo_id = state.get("promo_id")
     current_index = state.get("idx", 0)
     
     from keyboard_builder import KeyboardBuilder
@@ -238,7 +238,7 @@ async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
-    promo_id = state.get("promoId")
+    promo_id = state.get("promo_id")
     current_index = state.get("idx", 0)
     
     user_id, username, _ = get_user_info(update)
@@ -263,7 +263,7 @@ async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
-    promo_id = state.get("promoId")
+    promo_id = state.get("promo_id")
     current_index = state.get("idx", 0)
     
     # Get the promo data
@@ -297,9 +297,9 @@ async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
-    promo_id = state.get("promoId")
+    promo_id = state.get("promo_id")
     current_index = state.get("idx", 0)
-    status_msg_id = state.get("statusMessageId")  # Get status message ID from callback
+    status_msg_id = state.get("status_message_id")  # Get status message ID from callback
     
     try:
         promo_id = int(promo_id)

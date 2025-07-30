@@ -253,7 +253,7 @@ def format_promo_preview(pending_data: Dict, edit_id: Optional[int] = None) -> s
 
     ## ===== STATE MANAGEMENT =====
 
-def get_promos_index_from_promoId(promo_id: int, promos: List[Dict]) -> int:
+def get_promos_index_from_promo_id(promo_id: int, promos: List[Dict]) -> int:
     """
     Find the index of a promo by its ID in the promos list
     Returns 0 if promo not found (fallback to first promo)
@@ -269,7 +269,7 @@ def get_promos_index_from_promoId(promo_id: int, promos: List[Dict]) -> int:
     logger.warning(f"Promo ID {promo_id} not found in promos list, falling back to index 0")
     return 0
 
-def get_promoId_from_promos_index(index: int, promos: List[Dict]) -> int:
+def get_promo_id_from_promos_index(index: int, promos: List[Dict]) -> int:
     """
     Get promo ID from index in the promos list
     Returns 0 if index is out of bounds
@@ -296,11 +296,11 @@ async def check_promos_available(update, state, promos: List[Dict] = None) -> Bo
 
     logger.info("📭 Нет доступных предложений.")
     no_promos_text = "📭 Нет доступных предложений. Попробуйте позже: /start"
-    if state.verifiedAt > 0:  # Is admin
+    if state.verified_at > 0:  # Is admin
         no_promos_text += "\n\n📝 Как администратор, вы можете создать предложение, отправив сообщение с текстом, изображением и ссылкой."
-    if state.promoMessageId > 0:
+    if state.promo_message_id > 0:
         # If we have a promo message, edit it to show no promos
-        await safe_edit_message(update, message_id=state.promoMessageId, text=no_promos_text)
+        await safe_edit_message(update, message_id=state.promo_message_id, text=no_promos_text)
     else:
         await safe_send_message(update, text=no_promos_text)
     return None

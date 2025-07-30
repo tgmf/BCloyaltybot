@@ -23,7 +23,7 @@ class KeyboardBuilder:
                 callback_data="disabled"
             )
     
-        # Navigation buttons - use current state, handlers will update promoId
+        # Navigation buttons - use current state, handlers will update promo_id
         nav_buttons = [
             InlineKeyboardButton(
                 "《",
@@ -38,7 +38,7 @@ class KeyboardBuilder:
         keyboard.append(nav_buttons)
         
         # Add admin buttons if user is admin
-        if state.verifiedAt > 0:
+        if state.verified_at > 0:
             admin_buttons = [
                 InlineKeyboardButton(
                     "📋 List",
