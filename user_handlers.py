@@ -9,7 +9,7 @@ from auth import get_user_info, verify_admin_access
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    check_promos_available, log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error, get_promos_index_from_promoId
+    check_promos_available, get_promoId_from_promos_index, log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error, get_promos_index_from_promoId
 )
 
 logger = logging.getLogger(__name__)
@@ -43,16 +43,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     welcome_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
     
     # Send welcome message and capture message ID
-    state_with_status = await show_status(update, state, text=welcome_text)
-
-    state_with_promo = await check_promos_available(update, state_with_status, active_promos)
+    state = await show_status(update, state, text=welcome_text)
     
+    init_text = f"⏲️ Getting your promos ready... Please wait."
+    
+    # Show initial status message
+    response = await safe_send_message(update, text=init_text)
+    promo_message_id = response.message_id if response else 0
+
+    state = StateManager.update_state(state, promo_message_id=promo_message_id)
+
+    state_with_promo = await check_promos_available(update, state, active_promos)
+
     if not state_with_promo:
         logger.error("No valid promo found.")
         return
     
     # Show first promo with state
     await show_promo(update, context, content_manager, state_with_promo)
+    
 
 # ===== PROMO DISPLAY =====
 
@@ -192,17 +201,34 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     logger.info(f"NAVIGATION ACTION: {action}, STATE: {state}")
     
-    # Get active promos and find current index
+    # Get active promos
     active_promos = content_manager.get_active_promos()
     if not active_promos:
         await show_status(update, state, text="📭 No promos available.")
         return
-
-    # Check verified_at (fresh check since it's stateless)
-    user_id, username, _ = get_user_info(update)
-    verified_at = await verify_admin_access(content_manager, user_id, username)
-    # Show the target promo
-    await show_promo(update, context, content_manager, state)
+    
+    # Find current index from promoId
+    current_index = get_promos_index_from_promoId(state.promoId, active_promos)
+    
+    # Calculate new index based on action
+    if action == "prev":
+        new_index = (current_index - 1) % len(active_promos)
+    elif action == "next":
+        new_index = (current_index + 1) % len(active_promos)
+    else:
+        logger.warning(f"Unknown navigation action: {action}")
+        return
+    
+    # Get new promoId from calculated index
+    new_promo_id = get_promoId_from_promos_index(new_index, active_promos)
+    
+    # Update state with new promoId
+    updated_state = StateManager.update_state(state, promo_id=new_promo_id)
+    
+    logger.info(f"Navigation: {current_index} -> {new_index}, promoId: {state.promoId} -> {new_promo_id}")
+    
+    # Show the target promo with updated state
+    await show_promo(update, context, content_manager, updated_state)
 
 async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle visit link button"""

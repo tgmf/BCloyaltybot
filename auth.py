@@ -4,6 +4,8 @@ import logging
 from typing import Tuple
 from telegram import Update
 
+from state_manager import StateManager
+
 logger = logging.getLogger(__name__)
 
 def get_verification_ttl() -> int:
@@ -74,7 +76,7 @@ async def refresh_admin_verification(state, content_manager, user_id: int, usern
         return state
     # Verification expired, re-check
     new_verified_at = await verify_admin_access(content_manager, user_id, username)
-    state.verifiedAt = new_verified_at
+    state = StateManager.update_state(state, verifiedAt = new_verified_at)
     if new_verified_at == 0:
         logger.info(f"Admin access revoked for user {user_id}")
     else:

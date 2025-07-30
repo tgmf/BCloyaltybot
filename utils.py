@@ -108,12 +108,39 @@ def get_status_emoji(status: str) -> str:
 async def safe_edit_message(update: Update, **kwargs):
     """Safely edit message with error handling - returns message object or None"""
     try:
-        if "media" in kwargs:
-            response = await update.callback_query.edit_message_media(**kwargs)
-        elif "text" in kwargs:
-            response = await update.callback_query.edit_message_text(**kwargs)
+        message_id = kwargs.pop("message_id", None)
+        
+        if update.callback_query:
+            # Editing via callback query (button click)
+            if "media" in kwargs:
+                response = await update.callback_query.edit_message_media(**kwargs)
+            elif "text" in kwargs:
+                response = await update.callback_query.edit_message_text(**kwargs)
+            else:
+                logger.error("No text or media provided for edit")
+                return None
+        elif message_id:
+            # Editing via bot.edit_message (when no callback query)
+            bot = update.get_bot()
+            chat_id = update.effective_chat.id
+            
+            if "media" in kwargs:
+                response = await bot.edit_message_media(
+                    chat_id=chat_id, 
+                    message_id=message_id, 
+                    **kwargs
+                )
+            elif "text" in kwargs:
+                response = await bot.edit_message_text(
+                    chat_id=chat_id, 
+                    message_id=message_id, 
+                    **kwargs
+                )
+            else:
+                logger.error("No text or media provided for edit")
+                return None
         else:
-            logger.error("No text or media provided for edit")
+            logger.error("No callback query or message_id provided for edit")
             return None
         
         if response:
@@ -259,7 +286,7 @@ async def check_promos_available(update, state, promos: List[Dict] = None) -> Bo
     Returns True if at least one active promo exists
     """
     if promos is None:
-        promos = content_manager.get_active_promos()
+        promos = ContentManager.get_active_promos()
     if promos:
         for promo in promos:
             if promo.get("status") == "active":
@@ -267,10 +294,9 @@ async def check_promos_available(update, state, promos: List[Dict] = None) -> Bo
                 state = StateManager.update_state(state, promo_id=promo.get("id", 0))
                 return state
 
-    from user_handlers import show_status
     logger.info("📭 No promos available at the moment.")
     no_promos_text = "📭 No promos available at the moment."
     if state.verifiedAt > 0:  # Is admin
         no_promos_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
-    await show_status(update, state, text=no_promos_text)
+    await safe_send_message(update, text=no_promos_text)
     return None
