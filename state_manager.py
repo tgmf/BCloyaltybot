@@ -64,7 +64,6 @@ class StateManager:
         """
         # Convert action to camelCase if needed
         action_camel = StateManager._to_camel_case(action)
-        
         # Start building parts
         parts = [action_camel]
         
@@ -76,11 +75,11 @@ class StateManager:
         if state.verified_at > 0:
             parts.extend(["v", StateManager._encode_number(state.verified_at)])
 
-            if state.status_message_id > 0:
-                parts.extend(["s", StateManager._encode_number(state.status_message_id)])
+        if state.status_message_id > 0:
+            parts.extend(["s", StateManager._encode_number(state.status_message_id)])
 
-            if state.promo_message_id > 0:
-                parts.extend(["m", StateManager._encode_number(state.promo_message_id)])
+        if state.promo_message_id > 0:
+            parts.extend(["m", StateManager._encode_number(state.promo_message_id)])
 
         # Join with underscores
         callback_data = "_".join(parts)
@@ -88,7 +87,6 @@ class StateManager:
         # If too long, use compressed JSON format
         if len(callback_data) > 64:
             return StateManager._encode_json_compressed(action_camel, state)
-        
         return callback_data
     
     @staticmethod

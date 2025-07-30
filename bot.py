@@ -205,7 +205,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if update.effective_message:
                 await update.effective_message.reply_text(
-                    "❌ An error occurred. Please try again or contact support."
+                    "❌ Возникла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже."
                 )
         except Exception as e:
             logger.error(f"Failed to send error message to user: {e}")

@@ -84,7 +84,6 @@ async def show_status(update: Update, state, text, parse_mode="Markdown") -> Bot
 
 async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState) -> BotState:
     """Display promo using state management"""
-    logger.info(f"show_promo: promo_id={state.promo_id}, verified_at={state.verified_at}")
 
     active_promos = content_manager.get_active_promos()
     
@@ -94,14 +93,12 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         await show_status(update, state, "❌ Не можем найти это предложение.")
         return state
     
-    logger.info(f"PROMO DATA: {promo}")
-    
     # Extract link for keyboard
     promo_link = promo.get("link", "")
     
     # Build keyboard with current state and link
     reply_markup = KeyboardBuilder.user_navigation(state, promo_link)
-    
+
     if state.promo_message_id:
         # Editing existing message - use media/text format
         if promo["image_file_id"]:
@@ -201,8 +198,6 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     # Decode state from callback data
     action, state = StateManager.decode_callback_data(query.data)
-    
-    logger.info(f"NAVIGATION ACTION: {action}, STATE: {state}")
     
     # Get active promos
     active_promos = content_manager.get_active_promos()
