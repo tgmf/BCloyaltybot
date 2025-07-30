@@ -2,8 +2,8 @@ import logging
 import json
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from typing import Dict, Optional, List, Tuple
+from telegram import Update
 from telegram.error import TelegramError
 
 logger = logging.getLogger(__name__)
@@ -55,134 +55,6 @@ def log_response(response_data: dict, description: str = ""):
     except Exception as e:
         logger.error(f"Error logging response: {e}")
 
-# ===== STATELESS STATE MANAGEMENT =====
-
-REQUIRED_STATE_FIELDS = ["idx", "promoId", "verifiedAt", "userId", "statusMessageId", "timestamp", "isList"]
-
-# Updated encode_callback_state function with shorter keys
-def encode_callback_state(action: str, **state_vars) -> str:
-    """
-    Encode action and state variables into callback data with short keys
-    Short key mappings:
-    - idx -> i (index)
-    - promoId -> p (promo ID)  
-    - ts -> t (timestamp)
-    - statusMessageId -> s (status message ID)
-    - userId -> u (user ID)
-    """
-    # Key mapping for shorter names
-    key_mapping = {
-        "idx": "i",
-        "promoId": "p", 
-        "ts": "t",
-        "statusMessageId": "s",
-        "userId": "u",
-        "isList": "l",
-        "verifiedAt": "v"
-    }
-    
-    # Use camelCase for action
-    def to_camel(s):
-        parts = s.split('_')
-        return parts[0] + ''.join(word.capitalize() for word in parts[1:]) if len(parts) > 1 else s
-
-    action_camel = to_camel(action)
-    parts = [action_camel]
-    
-    for key, value in state_vars.items():
-        short_key = key_mapping.get(key, key)
-        parts.extend([short_key, str(value)])
-    
-    callback_data = "_".join(parts)
-    
-    if len(callback_data) > 64:
-        # If too long, use JSON encoding with compression
-        state_json = json.dumps({
-            "a": action_camel, 
-            **{key_mapping.get(k, k): v for k, v in state_vars.items()}
-        }, separators=(',', ':'))
-        return f"state_{state_json}"[:64]
-    
-    return callback_data
-
-def decode_callback_state(callback_data: str) -> Tuple[str, Dict[str, Any]]:
-    """
-    Decode callback data back into action and state variables
-    Handles both short keys and full keys for backward compatibility
-    """
-    # Reverse key mapping
-    reverse_mapping = {
-        "i": "idx",
-        "p": "promoId",
-        "t": "ts", 
-        "s": "statusMessageId",
-        "u": "userId",
-        "l": "isList",
-        "v": "verifiedAt",
-    }
-    
-    if callback_data.startswith("state_"):
-        # JSON encoded state
-        try:
-            state_json = callback_data[6:]
-            data = json.loads(state_json)
-            action = data.pop("a")
-            # Convert short keys back to full keys
-            expanded_state = {}
-            for k, v in data.items():
-                full_key = reverse_mapping.get(k, k)
-                expanded_state[full_key] = v
-            return action, expanded_state
-        except (json.JSONDecodeError, KeyError):
-            return callback_data, {}
-    
-    # Simple underscore-separated format
-    parts = callback_data.split("_")
-    if len(parts) < 1:
-        return callback_data, {}
-    
-    action = parts[0]
-    state = {}
-    i = 1
-    while i < len(parts):
-        if i + 1 < len(parts):
-            key = parts[i]
-            value = parts[i + 1]
-            
-            # Convert short key to full key
-            full_key = reverse_mapping.get(key, key)
-            
-            try:
-                if value.isdigit():
-                    state[full_key] = int(value)
-                elif value.replace(".", "").isdigit():
-                    state[full_key] = float(value)
-                elif value.lower() in ("true", "false"):
-                    state[full_key] = value.lower() == "true"
-                else:
-                    state[full_key] = value
-            except:
-                state[full_key] = value
-            i += 2
-        else:
-            i += 1
-    
-    return action, state
-
-def validate_callback_state(callback_data: str, max_age: int = 3600) -> bool:
-    """Validate that callback state is not too old"""
-    _, state = decode_callback_state(callback_data)
-    # Validate all required fields are present and log missing ones
-    missing_fields = [field for field in REQUIRED_STATE_FIELDS if field not in state]
-    if missing_fields:
-        logger.warning(f"Callback data missing required fields: {missing_fields} | data: {callback_data}")
-        return False
-
-def get_current_promo_index_from_callback(callback_data: str) -> int:
-    """Extract current promo index from callback data"""
-    _, state = decode_callback_state(callback_data)
-    return state.get("idx", 0)
-
 # ===== MESSAGE FORMATTING =====
 
 def format_promo_text(promo: Dict, include_status: bool = False) -> str:
@@ -230,8 +102,8 @@ def get_status_emoji(status: str) -> str:
 
 # ===== ERROR HANDLING =====
 
-async def safe_edit_message(update: Update, **kwargs) -> bool:
-    """Safely edit message with error handling"""
+async def safe_edit_message(update: Update, **kwargs):
+    """Safely edit message with error handling - returns message object or None"""
     try:
         if "media" in kwargs:
             response = await update.callback_query.edit_message_media(**kwargs)
@@ -239,18 +111,18 @@ async def safe_edit_message(update: Update, **kwargs) -> bool:
             response = await update.callback_query.edit_message_text(**kwargs)
         else:
             logger.error("No text or media provided for edit")
-            return False
+            return None
         
         if response:
             log_response(response.to_dict(), "SAFE EDIT MESSAGE")
-        return True
+        return response
         
     except TelegramError as e:
         logger.error(f"Failed to edit message: {e}")
-        return False
+        return None
 
-async def safe_send_message(update: Update, **kwargs) -> bool:
-    """Safely send message with error handling"""
+async def safe_send_message(update: Update, **kwargs):
+    """Safely send message with error handling - returns message object or None"""
     try:
         if "photo" in kwargs:
             response = await update.effective_message.reply_photo(**kwargs)
@@ -258,15 +130,15 @@ async def safe_send_message(update: Update, **kwargs) -> bool:
             response = await update.effective_message.reply_text(**kwargs)
         else:
             logger.error("No text or photo provided for send")
-            return False
+            return None
         
         if response:
             log_response(response.to_dict(), "SAFE SEND MESSAGE")
-        return True
+        return response  # Return the actual message object
         
     except TelegramError as e:
         logger.error(f"Failed to send message: {e}")
-        return False
+        return None
 
 def handle_telegram_error(error: TelegramError, context: str = "") -> str:
     """Handle telegram errors and return user-friendly message"""
@@ -318,17 +190,6 @@ def validate_promo_data(promo: Dict) -> bool:
             return False
     
     return True
-
-# ===== DEBUGGING FUNCTIONS =====
-
-def test_callback_parsing():
-    """Test callback data parsing"""
-    test_data = "admin_edit_promo_id_1_idx_0_ts_1753678528"
-    action, state = decode_callback_state(test_data)
-    print(f"Test callback: {test_data}")
-    print(f"Parsed action: {action}")
-    print(f"Parsed state: {state}")
-    return action, state
 
 # ===== FORMATTING HELPERS =====
 

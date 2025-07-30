@@ -1,6 +1,6 @@
 import logging
-from typing import Optional, Dict, Any
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from typing import Dict, Any
+from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
@@ -13,9 +13,8 @@ from utils import (
     log_update, log_response, extract_message_components, validate_promo_data,
     safe_edit_message, safe_send_message, handle_telegram_error, get_status_emoji, truncate_text,
     format_admin_summary, format_promo_preview,
-    decode_callback_state,
-    validate_callback_state,
 )
+from state_manager import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +44,6 @@ async def ensure_admin_access(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     logger.info(f"Admin access granted for user {user_id} (@{username})")
     return True
-
-def is_admin_callback_valid(update: Update, max_age: int = 300) -> bool:
-    """Check if admin callback is valid and not too old"""
-    query = update.callback_query
-    if not query:
-        return False
-    
-    return validate_callback_state(query.data, max_age)
 
 # ===== ADMIN COMMANDS =====
 
@@ -181,7 +172,7 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     # Get current index from callback for back button
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
+    action, state = StateManager.decode_callback_data(query.data)
     current_index = state.get("idx", 0)
     
     # Create summary text
@@ -194,11 +185,7 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Toggle promo status and update current message"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
@@ -232,11 +219,7 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
 async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Delete promo with confirmation"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
@@ -253,11 +236,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Confirm and execute promo deletion"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
@@ -282,11 +261,7 @@ async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYP
 async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Show editing options for specific promo"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
@@ -320,11 +295,7 @@ async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Handle text editing for specific promo"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please refresh and try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     current_index = state.get("idx", 0)
@@ -389,7 +360,7 @@ async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     
     # Decode state from callback
-    action, state = decode_callback_state(query.data)
+    action, state = StateManager.decode_callback_data(query.data)
     current_index = state.get("idx", 0)
     
     # Check if user is admin
@@ -473,11 +444,7 @@ async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def publish_pending_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, status: str):
     """Publish pending message with given status"""
     query = update.callback_query
-    action, state = decode_callback_state(query.data)
-    
-    if not is_admin_callback_valid(update):
-        await safe_send_message(update, text="⏰ This action has expired. Please try again.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     user_id = state.get("userId")
     if not user_id:
@@ -558,7 +525,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     logger.info(f"ADMIN CALLBACK: user_id={user_id}, data={data}")
     
     # Decode callback data
-    action, state = decode_callback_state(data)
+    action, state = StateManager.decode_callback_data(data)
     
     # Check admin access (stateless)
     is_admin = await check_admin_access(content_manager, user_id, username)

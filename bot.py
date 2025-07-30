@@ -182,13 +182,13 @@ def register_all_handlers(application: Application, content_manager: ContentMana
 async def handle_stateless_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle stateless callbacks with JSON-encoded state"""
     # Import here to avoid circular imports
-    from utils import decode_callback_state
+    from state_manager import StateManager
     
     query = update.callback_query
     await query.answer()
     
     # Decode the action and route to appropriate handler
-    action, state = decode_callback_state(query.data)
+    action, state = StateManager.decode_callback_data(query.data)
     
     logger.info(f"STATELESS CALLBACK: action={action}, state={state}")
     

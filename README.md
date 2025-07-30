@@ -370,13 +370,13 @@ python app.py
 ### Testing Stateless Design
 ```python
 # Test callback data encoding/decoding
-from utils import encode_callback_state, decode_callback_state
+from utils import encode_callback_state, StateManager.decode_callback_data
 
 # Encode state
 callback_data = encode_callback_state("next", idx=2, admin=True, ts=1722176789)
 
 # Decode state  
-action, state = decode_callback_state(callback_data)
+action, state = StateManager.decode_callback_data(callback_data)
 print(f"Action: {action}, State: {state}")
 ```
 

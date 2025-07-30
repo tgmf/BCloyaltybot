@@ -9,9 +9,7 @@ from auth import get_user_info, verify_admin_access
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error,
-    decode_callback_state, 
-    validate_callback_state,
+    log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error
 )
 
 logger = logging.getLogger(__name__)
@@ -187,12 +185,7 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await query.answer()
     
     # Decode state from callback data
-    action, state = decode_callback_state(query.data)
-    
-    # Validate callback state (not too old)
-    if not validate_callback_state(query.data, max_age=3600):
-        await safe_send_message(update, text="⏰ This action has expired. Please use /start to refresh.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     # Get target index from state
     target_index = state.get("idx", 0)
@@ -211,12 +204,7 @@ async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await query.answer()
     
     # Decode state from callback data
-    action, state = decode_callback_state(query.data)
-    
-    # Validate callback state
-    if not validate_callback_state(query.data, max_age=3600):
-        await safe_send_message(update, text="⏰ This action has expired. Please use /start to refresh.")
-        return
+    action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.get("promoId")
     if not promo_id:
