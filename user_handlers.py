@@ -9,7 +9,7 @@ from auth import get_user_info, verify_admin_access
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error
+    check_promos_available, log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error, get_promos_index_from_promoId
 )
 
 logger = logging.getLogger(__name__)
@@ -31,100 +31,112 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     active_promos = content_manager.get_active_promos()
     logger.info(f"Found {len(active_promos)} active promos")
     
-    # Send welcome message
-    status_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
-    
-    if not active_promos:
-        status_text += "\n\nNo promos available at the moment."
-        if verified_at > 0:  # Is admin
-            status_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
-        
-        await safe_send_message(update, text=status_text, parse_mode="Markdown")
-        logger.warning("No active promos found")
-        return
-    
-    # Send welcome message and capture message ID
-    welcome_response = await safe_send_message(update, text=status_text, parse_mode="Markdown")
-    
-    if not welcome_response:
-        logger.error("Failed to send welcome message")
-        return
-    
     # Create initial state with status message ID
     state = StateManager.create_state(
-        promo_id=active_promos[0]["id"],  # First promo
+        promo_id=0,  # First promo
         verified_at=verified_at,
-        status_message_id=welcome_response.message_id,
+        status_message_id=0,
         promo_message_id=0  # Will be set when promo is sent
     )
     
+    # Send welcome message
+    welcome_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
+    
+    # Send welcome message and capture message ID
+    state_with_status = await show_status(update, state, text=welcome_text)
+
+    state_with_promo = await check_promos_available(update, state_with_status, active_promos)
+    
+    if not state_with_promo:
+        logger.error("No valid promo found.")
+        return
+    
     # Show first promo with state
-    await show_promo(update, context, content_manager, state)
+    await show_promo(update, context, content_manager, state_with_promo)
 
 # ===== PROMO DISPLAY =====
 
-async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState):
-    """Display promo at specific index using state management"""
+async def show_status(update: Update, state, text, parse_mode="Markdown") -> BotState:
+    """
+    Post or update status message based on current state
+    If state.statusMessageId exists, edit it; otherwise, send a new message
+    Returns updated state with statusMessageId set
+    """
+    if state.statusMessageId:
+        await safe_edit_message(update, text=text, parse_mode=parse_mode, message_id=state.statusMessageId)
+    else:
+        response = await safe_send_message(update, text=text, parse_mode=parse_mode)
+        if response:
+            state = StateManager.update_state(state, status_message_id=response.message_id)
+        else:
+            logger.error("Failed to send status message")
+
+    return state
+
+async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState) -> BotState:
+    """Display promo using state management"""
     logger.info(f"show_promo: promoId={state.promoId}, verifiedAt={state.verifiedAt}")
 
     active_promos = content_manager.get_active_promos()
     
-    if active_promos:        
-        # Find the promo by ID
-        promo = next((p for p in active_promos if p["id"] == state.promoId), None)
-        if not promo:
-            await safe_send_message(update, text="❌ Promo not found.")
-            return
-        
-        logger.info(f"PROMO DATA: {promo}")
+    # Find the promo by ID
+    promo = next((p for p in active_promos if p["id"] == state.promoId), None)
+    if not promo:
+        await show_status(update, state, "❌ Promo not found.")
+        return state
     
-    # Build keyboard with updated state
-    reply_markup = KeyboardBuilder.user_navigation(state, len(active_promos))
-
-    # Send message
-    try:
+    logger.info(f"PROMO DATA: {promo}")
+    
+    # Build keyboard with current state
+    reply_markup = KeyboardBuilder.user_navigation(state)
+    
+    if state.promoMessageId:
+        # Editing existing message - use media/text format
         if promo["image_file_id"]:
-            if update.callback_query:
-                # Edit existing message
-                logger.info("EDITING MESSAGE WITH MEDIA")
-                await update.callback_query.edit_message_media(
-                    media=InputMediaPhoto(media=promo["image_file_id"], caption=promo["text"]),
-                    reply_markup=reply_markup
-                )
-            else:
-                # Send new message
-                logger.info("SENDING NEW PHOTO MESSAGE")
-                response = await update.message.reply_photo(
-                    photo=promo["image_file_id"],
-                    caption=promo["text"],
-                    reply_markup=reply_markup
-                )
-                if response:
-                    log_response(response.to_dict(), "SEND PHOTO MESSAGE")
-                    # Update state with new promo message ID
-                    state.promoMessageId = response.message_id
+            message_kwargs = {
+                "media": InputMediaPhoto(media=promo["image_file_id"], caption=promo["text"]),
+                "reply_markup": reply_markup,
+                "message_id": state.promoMessageId
+            }
         else:
-            if update.callback_query:
-                logger.info("EDITING TEXT MESSAGE")
-                await update.callback_query.edit_message_text(
-                    text=promo["text"],
-                    reply_markup=reply_markup
-                )
-            else:
-                logger.info("SENDING NEW TEXT MESSAGE")
-                response = await update.message.reply_text(
-                    text=promo["text"],
-                    reply_markup=reply_markup
-                )
-                if response:
-                    log_response(response.to_dict(), "SEND TEXT MESSAGE")
-                    # Update state with new promo message ID
-                    state.promoMessageId = response.message_id
-
-    except TelegramError as e:
-        error_msg = handle_telegram_error(e, "show_promo")
-        logger.error(f"Failed to show promo: {e}")
-        await safe_send_message(update, text=f"❌ {error_msg}")
+            message_kwargs = {
+                "text": promo["text"],
+                "reply_markup": reply_markup,
+                "message_id": state.promoMessageId
+            }
+        
+        # Try to edit existing message
+        logger.info(f"EDITING MESSAGE ID: {state.promoMessageId}")
+        response = await safe_edit_message(update, **message_kwargs)
+        if not response:
+            logger.error("Failed to edit promo message")
+            await show_status(update, state, "❌ Failed to update display")
+        return state
+    else:
+        # Sending new message - use photo/text format
+        if promo["image_file_id"]:
+            message_kwargs = {
+                "photo": promo["image_file_id"],
+                "caption": promo["text"],
+                "reply_markup": reply_markup
+            }
+        else:
+            message_kwargs = {
+                "text": promo["text"],
+                "reply_markup": reply_markup
+            }
+        
+        # Send new message
+        logger.info("SENDING NEW PROMO MESSAGE")
+        response = await safe_send_message(update, **message_kwargs)
+        
+        if response:
+            logger.info(f"NEW PROMO MESSAGE ID: {response.message_id}")
+            return StateManager.update_state(state, promo_message_id=response.message_id)
+        else:
+            logger.error("Failed to send promo message")
+            await show_status(update, state, "❌ Failed to send message")
+            return state
 
 async def show_promo_with_status_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, verified_at: 0, user_id: int, status_message: str):
     """Show promo with an additional status message"""
@@ -178,14 +190,19 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Decode state from callback data
     action, state = StateManager.decode_callback_data(query.data)
     
-    # Get target index from state
-    target_index = state.get("idx", 0)
+    logger.info(f"NAVIGATION ACTION: {action}, STATE: {state}")
     
+    # Get active promos and find current index
+    active_promos = content_manager.get_active_promos()
+    if not active_promos:
+        await show_status(update, state, text="📭 No promos available.")
+        return
+
     # Check verified_at (fresh check since it's stateless)
     user_id, username, _ = get_user_info(update)
     verified_at = await verify_admin_access(content_manager, user_id, username)
     # Show the target promo
-    await show_promo(update, context, content_manager, target_index, verified_at, user_id)
+    await show_promo(update, context, content_manager, state)
 
 async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle visit link button"""
@@ -217,3 +234,22 @@ async def visit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     else:
         await query.message.reply_text("❌ Link not found or unavailable.")
         logger.warning(f"Link not found for promo {promo_id}")
+        
+# async def update_chat(update, context, content_manager, state):
+    
+#     if state.action :
+#         # Handle empty state
+#         status_msg = "No promos available"
+#         if state.verifiedAt > 0:  # Admin
+#             status_msg += "\n\n📝 Send message to create promo"
+        
+#         await update_status_message(status_msg)
+#         return
+    
+#     # Normal promo display logic
+#     promo = get_promos_index_from_promoId(state.promoId, active_promos)
+#     if not promo:
+#         promo = active_promos[0]  # Fallback to first
+#         state.promoId = promo["id"]
+    
+#     await show_promo(update, context, content_manager, state)

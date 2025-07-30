@@ -6,6 +6,9 @@ from typing import Dict, Optional, List, Tuple
 from telegram import Update
 from telegram.error import TelegramError
 
+from content_manager import ContentManager
+from state_manager import BotState, StateManager
+
 logger = logging.getLogger(__name__)
 
 # ===== LOGGING UTILITIES =====
@@ -249,3 +252,25 @@ def get_promoId_from_promos_index(index: int, promos: List[Dict]) -> int:
         return 0
     
     return promos[index].get("id", 0)
+
+async def check_promos_available(update, state, promos: List[Dict] = None) -> BotState:
+    """
+    Check if there are any active promos available
+    Returns True if at least one active promo exists
+    """
+    if promos is None:
+        promos = content_manager.get_active_promos()
+    if promos:
+        for promo in promos:
+            if promo.get("status") == "active":
+                logger.info(f"Active promo found: ID {promo.get('id')}")
+                state = StateManager.update_state(state, promo_id=promo.get("id", 0))
+                return state
+
+    from user_handlers import show_status
+    logger.info("📭 No promos available at the moment.")
+    no_promos_text = "📭 No promos available at the moment."
+    if state.verifiedAt > 0:  # Is admin
+        no_promos_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
+    await show_status(update, state, text=no_promos_text)
+    return None

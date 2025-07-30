@@ -10,38 +10,20 @@ class KeyboardBuilder:
         Build navigation keyboard for users (and admins in user mode)
         """
         keyboard = []
-        
-        # Create navigation states for prev/next
-        # Note: promoId will be updated by handler with actual prev/next promo IDs
-        prev_state = BotState(
-            promoId=state.promoId,  # Will be updated with actual prev promo ID by handler
-            verifiedAt=state.verifiedAt,
-            statusMessageId=state.statusMessageId,
-            promoMessageId=state.promoMessageId
-        )
-        
-        next_state = BotState(
-            promoId=state.promoId,  # Will be updated with actual next promo ID by handler
-            verifiedAt=state.verifiedAt,
-            statusMessageId=state.statusMessageId,
-            promoMessageId=state.promoMessageId
-        )
-        
-        visit_state = state  # Visit uses current state
-        
-        # Navigation buttons
+    
+        # Navigation buttons - use current state, handlers will update promoId
         nav_buttons = [
             InlineKeyboardButton(
                 "← Previous",
-                callback_data=StateManager.encode_state_for_callback("prev", prev_state)
+                callback_data=StateManager.encode_state_for_callback("prev", state)
             ),
             InlineKeyboardButton(
                 "🔗 Visit Link",
-                callback_data=StateManager.encode_state_for_callback("visit", visit_state)
+                callback_data=StateManager.encode_state_for_callback("visit", state)
             ),
             InlineKeyboardButton(
                 "Next →",
-                callback_data=StateManager.encode_state_for_callback("next", next_state)
+                callback_data=StateManager.encode_state_for_callback("next", state)
             )
         ]
         keyboard.append(nav_buttons)
