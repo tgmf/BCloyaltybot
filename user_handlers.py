@@ -40,13 +40,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     )
     
     # Send welcome message
-    welcome_text = f"🎉 Welcome to BC Loyalty, {first_name}!"
+    welcome_text = f"🎉 Добро пожаловать в программу лояльности Business Club, {first_name}!"
     
     # Send welcome message and capture message ID
     state = await show_status(update, state, text=welcome_text)
-    
-    init_text = f"⏲️ Getting your promos ready... Please wait."
-    
+
+    init_text = f"⏲️ Собираем предложения для вас... Пожалуйста, подождите."
+
     # Show initial status message
     response = await safe_send_message(update, text=init_text)
     promo_message_id = response.message_id if response else 0
@@ -91,7 +91,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     # Find the promo by ID
     promo = next((p for p in active_promos if p["id"] == state.promoId), None)
     if not promo:
-        await show_status(update, state, "❌ Promo not found.")
+        await show_status(update, state, "❌ Не можем найти это предложение.")
         return state
     
     logger.info(f"PROMO DATA: {promo}")
@@ -122,7 +122,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         response = await safe_edit_message(update, **message_kwargs)
         if not response:
             logger.error("Failed to edit promo message")
-            await show_status(update, state, "❌ Failed to update display")
+            await show_status(update, state, "❌ Не удалось обновить чат")
         return state
     else:
         # Sending new message - use photo/text format
@@ -147,7 +147,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
             return StateManager.update_state(state, promo_message_id=response.message_id)
         else:
             logger.error("Failed to send promo message")
-            await show_status(update, state, "❌ Failed to send message")
+            await show_status(update, state, "❌ Не удалось отправить сообщение")
             return state
 
 async def show_promo_with_status_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, verified_at: 0, user_id: int, status_message: str):
@@ -155,7 +155,7 @@ async def show_promo_with_status_message(update: Update, context: ContextTypes.D
     active_promos = content_manager.get_active_promos()
     
     if not active_promos or index < 0 or index >= len(active_promos):
-        await safe_edit_message(update, text=f"{status_message}\n\n📭 No promos available.")
+        await safe_edit_message(update, text=f"{status_message}\n\n📭 Нет доступных предложений.")
         return
     
     promo = active_promos[index]
@@ -207,7 +207,7 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Get active promos
     active_promos = content_manager.get_active_promos()
     if not active_promos:
-        await show_status(update, state, text="📭 No promos available.")
+        await show_status(update, state, text="📭 Нет доступных предложений.")
         return
     
     # Find current index from promoId

@@ -294,10 +294,10 @@ async def check_promos_available(update, state, promos: List[Dict] = None) -> Bo
                 state = StateManager.update_state(state, promo_id=promo.get("id", 0))
                 return state
 
-    logger.info("📭 No promos available at the moment.")
-    no_promos_text = "📭 No promos available at the moment. Try again later: /start"
+    logger.info("📭 Нет доступных предложений.")
+    no_promos_text = "📭 Нет доступных предложений. Попробуйте позже: /start"
     if state.verifiedAt > 0:  # Is admin
-        no_promos_text += "\n\n📝 As an admin, you can create promos by sending a message with text, image, and link."
+        no_promos_text += "\n\n📝 Как администратор, вы можете создать предложение, отправив сообщение с текстом, изображением и ссылкой."
     if state.promoMessageId > 0:
         # If we have a promo message, edit it to show no promos
         await safe_edit_message(update, message_id=state.promoMessageId, text=no_promos_text)
