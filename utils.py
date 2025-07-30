@@ -223,7 +223,7 @@ def format_promo_preview(pending_data: Dict, edit_id: Optional[int] = None) -> s
 
     ## ===== STATE MANAGEMENT =====
 
-def get_current_promo_index(promo_id: int, promos: List[Dict]) -> int:
+def get_promos_index_from_promoId(promo_id: int, promos: List[Dict]) -> int:
     """
     Find the index of a promo by its ID in the promos list
     Returns 0 if promo not found (fallback to first promo)
@@ -238,3 +238,14 @@ def get_current_promo_index(promo_id: int, promos: List[Dict]) -> int:
     # Promo not found, return 0 as fallback
     logger.warning(f"Promo ID {promo_id} not found in promos list, falling back to index 0")
     return 0
+
+def get_promoId_from_promos_index(index: int, promos: List[Dict]) -> int:
+    """
+    Get promo ID from index in the promos list
+    Returns 0 if index is out of bounds
+    """
+    if not promos or index < 0 or index >= len(promos):
+        logger.warning(f"Index {index} out of bounds, returning 0")
+        return 0
+    
+    return promos[index].get("id", 0)

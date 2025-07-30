@@ -59,37 +59,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     )
     
     # Show first promo with state
-    await show_promo(update, context, content_manager, 0, state)
+    await show_promo(update, context, content_manager, state)
 
 # ===== PROMO DISPLAY =====
 
-async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, state: BotState):
+async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState):
     """Display promo at specific index using state management"""
-    logger.info(f"show_promo: index={index}, promoId={state.promoId}, verifiedAt={state.verifiedAt}")
-    
+    logger.info(f"show_promo: promoId={state.promoId}, verifiedAt={state.verifiedAt}")
+
     active_promos = content_manager.get_active_promos()
     
-    if not active_promos:
-        await safe_send_message(update, text="📭 No promos available.")
-        return
-    
-    if index < 0 or index >= len(active_promos):
-        index = 0  # Reset to first promo if out of bounds
-    
-    promo = active_promos[index]
-    logger.info(f"PROMO DATA: {promo}")
-    
-    # Update state with current promo ID
-    updated_state = BotState(
-        promoId=promo["id"],
-        verifiedAt=state.verifiedAt,
-        statusMessageId=state.statusMessageId,
-        promoMessageId=state.promoMessageId  # Will be updated after sending
-    )
+    if active_promos:        
+        # Find the promo by ID
+        promo = next((p for p in active_promos if p["id"] == state.promoId), None)
+        if not promo:
+            await safe_send_message(update, text="❌ Promo not found.")
+            return
+        
+        logger.info(f"PROMO DATA: {promo}")
     
     # Build keyboard with updated state
-    reply_markup = KeyboardBuilder.user_navigation(updated_state, index, len(active_promos))
-    
+    reply_markup = KeyboardBuilder.user_navigation(state, len(active_promos))
+
     # Send message
     try:
         if promo["image_file_id"]:
@@ -111,7 +102,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
                 if response:
                     log_response(response.to_dict(), "SEND PHOTO MESSAGE")
                     # Update state with new promo message ID
-                    updated_state.promoMessageId = response.message_id
+                    state.promoMessageId = response.message_id
         else:
             if update.callback_query:
                 logger.info("EDITING TEXT MESSAGE")
@@ -128,8 +119,8 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
                 if response:
                     log_response(response.to_dict(), "SEND TEXT MESSAGE")
                     # Update state with new promo message ID
-                    updated_state.promoMessageId = response.message_id
-                
+                    state.promoMessageId = response.message_id
+
     except TelegramError as e:
         error_msg = handle_telegram_error(e, "show_promo")
         logger.error(f"Failed to show promo: {e}")

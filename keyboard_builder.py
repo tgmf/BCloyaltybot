@@ -5,7 +5,7 @@ class KeyboardBuilder:
     """Centralized keyboard builder using stateless state management system"""
     
     @staticmethod
-    def user_navigation(state: BotState, current_index: int, total_promos: int):
+    def user_navigation(state: BotState):
         """
         Build navigation keyboard for users (and admins in user mode)
         """
