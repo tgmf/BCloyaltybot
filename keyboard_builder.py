@@ -14,12 +14,12 @@ class KeyboardBuilder:
         # Create visit link button - URL if link exists, disabled if not
         if promo_link:
             visit_button = InlineKeyboardButton(
-                "🔗&nbsp;&nbsp;Перейти",
+                "🔗  Перейти",
                 url=promo_link
             )
         else:
             visit_button = InlineKeyboardButton(
-                "🔗&nbsp;&nbsp;Скоро",
+                "🔗  Скоро",
                 callback_data="disabled"
             )
     
