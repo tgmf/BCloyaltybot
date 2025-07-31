@@ -45,7 +45,7 @@ def get_user_info(update: Update) -> Tuple[int, str, str]:
 async def check_admin_access(content_manager, user_id: int, username: str = "") -> bool:
     """Check if user has admin access (by user_id or username in admin db)"""
     try:
-        await content_manager.refresh_cache()
+        await content_manager.refresh_cache(True)
         user_id_str = str(user_id)
         logger.info(f"Checking admin access for user_id: {user_id_str}, username: {username}")
         logger.debug(f"Auth cache: {content_manager.auth_cache}")

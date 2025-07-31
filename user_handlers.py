@@ -27,10 +27,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     # Check admin status and get verified_at timestamp
     verified_at = await verify_admin_access(content_manager, user_id, username)
     
-    # Get active promos (content_manager already refreshed in verify_admin_access)
-    active_promos = content_manager.get_active_promos()
-    logger.info(f"Found {len(active_promos)} active promos")
-    
     # Create initial state with status message ID
     state = StateManager.create_state(
         promo_id=0,  # First promo
@@ -53,7 +49,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
 
     state = StateManager.update_state(state, promo_message_id=promo_message_id)
 
-    state_with_promo = await check_promos_available(update, state, active_promos)
+    state_with_promo = await check_promos_available(update, state, content_manager)
 
     if not state_with_promo:
         logger.error("No valid promo found.")
@@ -84,13 +80,12 @@ async def show_status(update: Update, state, text, parse_mode="Markdown") -> Bot
 
 async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState) -> BotState:
     """Display promo using state management"""
-
     active_promos = content_manager.get_active_promos()
     
     # Find the promo by ID
     promo = next((p for p in active_promos if p["id"] == state.promo_id), None)
     if not promo:
-        await show_status(update, state, "❌ Не можем найти это предложение.")
+        await show_status(update, state, "❌ Не удалось найти это предложение.")
         return state
     
     # Extract link for keyboard
@@ -206,11 +201,11 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Decode state from callback data
     action, state = StateManager.decode_callback_data(query.data)
     
-    # Get active promos
-    active_promos = content_manager.get_active_promos()
-    if not active_promos:
-        await show_status(update, state, text="📭 Нет доступных предложений.")
+    # Check for available promos
+    if not check_promos_available(update, state, content_manager):
         return
+    
+    active_promos = content_manager.get_active_promos()
     
     # Find current index from promo_id
     current_index = get_promos_index_from_promo_id(state.promo_id, active_promos)

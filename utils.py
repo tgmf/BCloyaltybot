@@ -280,27 +280,52 @@ def get_promo_id_from_promos_index(index: int, promos: List[Dict]) -> int:
     
     return promos[index].get("id", 0)
 
-async def check_promos_available(update, state, promos: List[Dict] = None) -> BotState:
+async def check_promos_available(update, state, content_manager) -> BotState:
     """
-    Check if there are any active promos available
-    Returns True if at least one active promo exists
+    Check if there are any promos available and update state accordingly
+    For users: only active promos matter
+    For admins: can see all promos, but prefer active ones
+    Returns updated state with first available promo_id, or original state if none found
     """
-    if promos is None:
-        promos = ContentManager.get_active_promos()
-    if promos:
-        for promo in promos:
-            if promo.get("status") == "active":
-                logger.info(f"Active promo found: ID {promo.get('id')}")
-                state = StateManager.update_state(state, promo_id=promo.get("id", 0))
-                return state
-
-    logger.info("📭 Нет доступных предложений.")
-    no_promos_text = "📭 Нет доступных предложений. Попробуйте позже: /start"
-    if state.verified_at > 0:  # Is admin
-        no_promos_text += "\n\n📝 Как администратор, вы можете создать предложение, отправив сообщение с текстом, изображением и ссылкой."
+    await content_manager.refresh_cache()
+    
+    is_admin = state.verified_at > 0
+    active_promos = content_manager.get_active_promos()
+    
+    # Fast path: if we have active promos, use first one
+    if active_promos:
+        first_promo_id = active_promos[0]["id"]  # Direct access, no .get()
+        logger.info(f"Using active promo ID {first_promo_id}")
+        return StateManager.update_state(state, promo_id=first_promo_id)
+    
+    # No active promos - show appropriate message
+    if is_admin:
+        all_promos = content_manager.get_all_promos()
+        if all_promos:
+            # Admin with inactive promos - show list
+            no_promos_text = "📭 Нет активных предложений.\n\n📋 Список всех предложений:"
+            for promo in all_promos[:5]:  # Limit to 5 to avoid long messages
+                status_emoji = get_status_emoji(promo.get("status", "unknown"))
+                promo_text = truncate_text(promo.get("text", "No text"), 40)
+                no_promos_text += f"\n{status_emoji} ID {promo.get('id', '?')}: {promo_text}"
+            
+            if len(all_promos) > 5:
+                no_promos_text += f"\n... и ещё {len(all_promos) - 5}"
+        else:
+            # Admin with no promos at all
+            no_promos_text = ("📭 Нет предложений.\n\n"
+                             "📝 Создайте предложение, отправив сообщение с текстом, "
+                             "изображением и ссылкой.")
+    else:
+        # Regular user with no active promos
+        no_promos_text = "📭 Нет доступных предложений. Попробуйте позже: /start"
+    
+    # Show no promos message
     if state.promo_message_id > 0:
-        # If we have a promo message, edit it to show no promos
         await safe_edit_message(update, message_id=state.promo_message_id, text=no_promos_text)
     else:
-        await safe_send_message(update, text=no_promos_text)
-    return None
+        response = await safe_send_message(update, text=no_promos_text)
+        if response:
+            state = StateManager.update_state(state, promo_message_id=response.message_id)
+    
+    return state

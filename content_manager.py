@@ -18,8 +18,8 @@ class ContentManager:
         self.promos_cache = []
         self.auth_cache = {}
         self.last_update = 0
-        self.cache_timeout = 300  # 5 minutes
-        
+        self.cache_timeout = 600  # 10 minutes
+
         # Initialize Google Sheets client
         try:
             if credentials_json:
