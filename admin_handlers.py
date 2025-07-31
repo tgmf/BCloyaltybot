@@ -107,7 +107,7 @@ async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
         except Exception as e:
             logger.error(f"Failed to send promo {i}: {e}")
-            await safe_send_message(update, text=f"❌ Error displaying promo {i}: {str(e)}")
+            await safe_send_message(update, text=f"❌ Ошибка отображения предложения {i}: {str(e)}\n\nПожалуйста, попробуйте еще раз: /start")
 
 async def toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Toggle promo status command"""
