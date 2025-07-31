@@ -1,3 +1,4 @@
+import os
 import logging
 import json
 from datetime import datetime
@@ -31,12 +32,15 @@ class ContentManager:
                 self.client = gspread.authorize(creds)
                 self.sheet = self.client.open_by_key(spreadsheet_id)
                 logger.info("Google Sheets client initialized successfully")
+                is_dev = bool(os.getenv("DEV_BOT_TOKEN"))
+                self.promo_sheet_name = "promo_messages_dev" if is_dev else "promo_messages"
             else:
                 logger.warning("No Google Sheets credentials provided")
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets: {e}")
             self.client = None
             self.sheet = None
+            
 
     async def refresh_cache(self, force: bool = False):
         """Refresh content cache from Google Sheets"""
@@ -53,7 +57,7 @@ class ContentManager:
 
         # Refresh promos cache
         try:
-            promos_sheet = self.sheet.worksheet("promo_messages")
+            promos_sheet = self.sheet.worksheet(self.promo_sheet_name)
             promos_data = promos_sheet.get_all_records()
             self.promos_cache = []
             if promos_data:
@@ -125,8 +129,8 @@ class ContentManager:
             return 0
             
         try:
-            promos_sheet = self.sheet.worksheet("promo_messages")
-            
+            promos_sheet = self.sheet.worksheet(self.promo_sheet_name)
+
             # Get next ID
             existing_data = promos_sheet.get_all_records()
             next_id = max([int(row.get("id", 0)) for row in existing_data], default=0) + 1
@@ -159,7 +163,7 @@ class ContentManager:
             return False
             
         try:
-            promos_sheet = self.sheet.worksheet("promo_messages")
+            promos_sheet = self.sheet.worksheet(self.promo_sheet_name)
             records = promos_sheet.get_all_records()
             
             for i, row in enumerate(records, start=2):  # Start from row 2 (skip header)
@@ -183,7 +187,7 @@ class ContentManager:
             return False
             
         try:
-            promos_sheet = self.sheet.worksheet("promo_messages")
+            promos_sheet = self.sheet.worksheet(self.promo_sheet_name)
             records = promos_sheet.get_all_records()
             
             for i, row in enumerate(records, start=2):  # Start from row 2 (skip header)
@@ -225,7 +229,7 @@ class ContentManager:
             return False
             
         try:
-            promos_sheet = self.sheet.worksheet("promo_messages")
+            promos_sheet = self.sheet.worksheet(self.promo_sheet_name)
             records = promos_sheet.get_all_records()
             
             for i, row in enumerate(records, start=2):  # Start from row 2 (skip header)

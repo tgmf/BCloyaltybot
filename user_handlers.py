@@ -68,8 +68,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
 async def show_status(update: Update, state, text, parse_mode="Markdown") -> BotState:
     """
     Post or update status message based on current state
-    If state.promo_message_id exists, edit it; otherwise, send a new message
-    Returns updated state with promo_message_id set
+    If state.status_message_id exists, edit it; otherwise, send a new message
+    Returns updated state with status_message_id set
     """
     if state.status_message_id:
         await safe_edit_message(update, text=text, parse_mode=parse_mode, message_id=state.status_message_id)
@@ -99,11 +99,18 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     # Build keyboard with current state and link
     reply_markup = KeyboardBuilder.user_navigation(state, promo_link)
 
+    # Validate and clean image_file_id
+    image_file_id = promo.get("image_file_id", "")
+    has_image = image_file_id and image_file_id.strip() and image_file_id != "None"
+    
+    # Log the image status for debugging
+    logger.info(f"Promo {state.promo_id} image status: '{image_file_id}' -> has_image: {has_image}")
+
     if state.promo_message_id:
         # Editing existing message - use media/text format
-        if promo["image_file_id"]:
+        if has_image:
             message_kwargs = {
-                "media": InputMediaPhoto(media=promo["image_file_id"], caption=promo["text"]),
+                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"]),
                 "reply_markup": reply_markup,
                 "message_id": state.promo_message_id
             }
