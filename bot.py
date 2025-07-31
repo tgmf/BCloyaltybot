@@ -20,41 +20,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def validate_environment():
-    """Validate required environment variables"""
-    required_vars = {
-        "MAIN_BOT_TOKEN": "Main bot token from @BotFather",
-        "GOOGLE_SPREADSHEET_ID": "Google Sheets spreadsheet ID"
-    }
-    
-    missing_vars = []
-    for var, description in required_vars.items():
-        if not os.getenv(var):
-            missing_vars.append(f"  {var}: {description}")
-    
-    # Check for webhook URL in production
-    port = os.getenv("PORT")
-    if port and not os.getenv("HEROKU_APP_NAME"):
-        missing_vars.append("  HEROKU_APP_NAME: Required for webhook URL in production")
-    
-    if missing_vars:
-        error_msg = "Missing required environment variables:\n" + "\n".join(missing_vars)
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
-    
-    # Optional but recommended
-    if not os.getenv("GOOGLE_SHEETS_CREDENTIALS"):
-        logger.warning("GOOGLE_SHEETS_CREDENTIALS not set - Google Sheets integration will not work")
-
 def create_application():
     """Create and configure the bot application"""
     try:
-        # Validate environment
-        validate_environment()
-        
         # Get token
-        token = os.getenv("MAIN_BOT_TOKEN")
-        
+        dev_token = os.getenv("DEV_BOT_TOKEN")
+        if dev_token:
+            token = dev_token
+            logger.info("Using DEV_BOT_TOKEN for development environment")
+        else:
+            token = os.getenv("MAIN_BOT_TOKEN")
+
         # Initialize content manager
         content_manager = ContentManager(
             os.getenv("GOOGLE_SHEETS_CREDENTIALS", ""), 
