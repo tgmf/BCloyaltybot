@@ -105,7 +105,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         # Editing existing message - use media/text format
         if has_image:
             message_kwargs = {
-                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"]),
+                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="Markdown"),
                 "reply_markup": reply_markup,
                 "message_id": state.promo_message_id
             }
@@ -113,7 +113,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
             message_kwargs = {
                 "text": promo["text"],
                 "reply_markup": reply_markup,
-                "message_id": state.promo_message_id
+                "message_id": state.promo_message_id,
             }
         
         # Try to edit existing message
@@ -129,12 +129,14 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
             message_kwargs = {
                 "photo": promo["image_file_id"],
                 "caption": promo["text"],
-                "reply_markup": reply_markup
+                "reply_markup": reply_markup,
+                "parse_mode": "Markdown"
             }
         else:
             message_kwargs = {
                 "text": promo["text"],
-                "reply_markup": reply_markup
+                "reply_markup": reply_markup,
+                "parse_mode": "Markdown"
             }
         
         # Send new message

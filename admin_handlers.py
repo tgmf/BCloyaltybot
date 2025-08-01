@@ -10,7 +10,7 @@ from auth import get_user_info, log_admin_action, check_admin_access
 from user_handlers import show_promo, show_promo_with_status_message, show_status
 # Import stateless utilities (now in utils)
 from utils import (
-    log_update, log_response, extract_message_components, validate_promo_data,
+    check_promos_available, log_update, log_response, extract_message_components, validate_promo_data,
     safe_edit_message, safe_send_message, handle_telegram_error, get_status_emoji, truncate_text,
     format_admin_summary, format_promo_preview,
 )
@@ -184,15 +184,11 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Toggle promo status and update current message"""
+    await content_manager.refresh_cache(True)
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
     
     promo_id = state.promo_id
-    try:
-        promo_id = int(promo_id)
-    except (TypeError, ValueError):
-        await show_status(update, text=f"❌ Неверный promo_id: {promo_id}")
-        return
     
     promos = content_manager.get_all_promos()
     logger.info(f"promo_id from state: {promo_id} (type: {type(promo_id)})")
@@ -200,7 +196,7 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
     
     promo = next((p for p in promos if int(p["id"]) == promo_id), None)
     if not promo:
-        await show_status(update, text=f"❌ Предложение {promo_id} не найдено")
+        await show_status(update, state, text=f"❌ Предложение {promo_id} не найдено")
         return
     
     old_status = promo["status"]
@@ -213,30 +209,24 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
         
         # Show success status message
         success_msg = f"✅ Предложение {promo_id}: {old_status} → {new_status}"
-        updated_state = await show_status(update, state, success_msg)
-        
+        await show_status(update, state, success_msg)
+
         # Determine which promo to show
-        if new_status == "active":
-            # We activated it, show this promo
-            target_promo_id = promo_id
-        else:
-            # We deactivated it, show next active promo
-            active_promos = content_manager.get_active_promos()
-            if active_promos:
-                target_promo_id = active_promos[0]["id"]  # Show first active promo
-            else:
-                # No active promos, show "no promos" message
-                await show_status(update, updated_state, "📭 Нет активных предложений.")
-                return
+        if new_status == "inactive":
+            # If deactivated, show next active promo or error message
+            state = await check_promos_available(update, state, content_manager)
+
+        if state:
+            await show_promo(update, context, content_manager, state)
         
-        # Update state with target promo and show it
-        final_state = StateManager.update_state(updated_state, promo_id=target_promo_id)
-        await show_promo(update, context, content_manager, final_state)
-        
+        return
+
     else:
         # Show error status message
         error_msg = f"❌ Не удалось обновить предложение {promo_id}"
         await show_status(update, state, error_msg)
+        
+    return
 
 async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Delete promo with confirmation"""

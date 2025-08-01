@@ -92,27 +92,30 @@ class StateManager:
     @staticmethod
     def decode_callback_data(callback_data: str) -> Tuple[str, BotState]:
         """
-        Decode callback data back into action and state
-        Returns: (action, BotState)
+        Decode callback data back into action and state.
+        Returns: (action, BotState) with validated state. If invalid, returns default BotState and logs warning.
         """
         if callback_data.startswith("state_"):
-            return StateManager._decode_json_compressed(callback_data)
-        
+            action, state = StateManager._decode_json_compressed(callback_data)
+            if not StateManager.validate_state(state):
+                logger.warning(f"Decoded state from JSON is invalid: {state}. Returning default BotState.")
+                return action, BotState()
+            return action, state
+
         # Parse underscore-separated format
         parts = callback_data.split("_")
         if len(parts) < 1:
             return callback_data, BotState()
-        
+
         action = parts[0]
         state = BotState()
-        
+
         # Parse key-value pairs
         i = 1
         while i < len(parts):
             if i + 1 < len(parts):
                 key = parts[i]
                 value = parts[i + 1]
-                
                 try:
                     if key == "p":
                         state.promo_id = StateManager._decode_number(value)
@@ -124,17 +127,32 @@ class StateManager:
                         state.promo_message_id = StateManager._decode_number(value)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Failed to parse callback key {key}={value}: {e}")
-                
                 i += 2
             else:
                 i += 1
-        
+
+        if not StateManager.validate_state(state):
+            logger.warning(f"Decoded state from callback is invalid: {state}. Returning default BotState.")
+            return action, BotState()
         return action, state
     
     @staticmethod
     def validate_state(state: BotState) -> bool:
-        """Minimal validation to help during development"""
-        # Check for negative IDs (likely encoding/decoding errors)
+        """
+        Validate BotState object:
+        - All fields must be integers
+        - No negative IDs (likely encoding/decoding errors)
+        - verified_at must not be unreasonably in the future
+        Returns True if valid, False otherwise.
+        """
+        # Check types
+        for field in ['promo_id', 'verified_at', 'status_message_id', 'promo_message_id']:
+            value = getattr(state, field, None)
+            if not isinstance(value, int):
+                logger.warning(f"State field '{field}' is not int: {value} ({type(value)}) in state: {state}")
+                return False
+
+        # Check for negative IDs
         if state.promo_id < 0 or state.status_message_id < 0 or state.promo_message_id < 0:
             logger.warning(f"Negative IDs in state: {state}")
             return False
@@ -143,7 +161,7 @@ class StateManager:
         if state.verified_at > int(time.time()) + 86400:  # Allow 1 day future for clock skew
             logger.warning(f"Future verified_at in state: {state}")
             return False
-        
+
         return True
     
     # Helper methods
