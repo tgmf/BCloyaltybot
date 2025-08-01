@@ -7,7 +7,7 @@ from telegram.error import TelegramError
 # Import auth functions (mainly for get_user_info and logging)
 from auth import get_user_info, log_admin_action, check_admin_access
 # Import user handlers for shared functions
-from user_handlers import show_promo, show_promo_with_status_message, show_status
+from user_handlers import show_promo, show_status
 # Import stateless utilities (now in utils)
 from utils import (
     check_promos_available, log_update, log_response, extract_message_components, validate_promo_data,
@@ -115,7 +115,7 @@ async def toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
         return
     
     if not context.args:
-        await safe_send_message(update, text="📝 Usage: `/toggle {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Используйте так: `/toggle {promo_id}`", parse_mode="Markdown")
         return
     
     try:
@@ -123,7 +123,7 @@ async def toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
         await toggle_promo_status(update, context, content_manager, promo_id)
         
     except ValueError:
-        await safe_send_message(update, text="❌ Invalid promo ID. Please provide a number.")
+        await safe_send_message(update, text="❌ Неверный ID предложения. Пожалуйста, укажите число.")
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Delete promo command"""
@@ -131,14 +131,14 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
         return
     
     if not context.args:
-        await safe_send_message(update, text="📝 Usage: `/delete {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Используйте так: `/delete {promo_id}`", parse_mode="Markdown")
         return
     
     try:
         promo_id = int(context.args[0])
         await delete_promo(update, context, content_manager, promo_id)
     except ValueError:
-        await safe_send_message(update, text="❌ Invalid promo ID. Please provide a number.")
+        await safe_send_message(update, text="❌ Неверный ID предложения. Пожалуйста, укажите число.")
 
 async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Edit promo command"""
@@ -148,16 +148,16 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE, conte
     if context.args:
         try:
             promo_id = int(context.args[0])
-            await safe_send_message(update, text=f"📝 To edit promo {promo_id}, send a new message with updated content.")
-            
+            await safe_send_message(update, text=f"📝 Чтобы отредактировать предложение {promo_id}, отправьте новое сообщение с обновленным содержимым.")
+
             # Store promo_id for next message (stateless alternative)
             user_id, _, _ = get_user_info(update)
             pending_messages_store[user_id] = {"edit_id": promo_id}
             
         except ValueError:
-            await safe_send_message(update, text="❌ Invalid promo ID. Please provide a number.")
+            await safe_send_message(update, text="❌ Неверный ID предложения. Пожалуйста, укажите число.")
     else:
-        await safe_send_message(update, text="📝 Usage: `/edit {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Используйте так: `/edit {promo_id}`", parse_mode="Markdown")
 
 # ===== INLINE ADMIN HANDLERS =====
 
@@ -187,12 +187,11 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
     await content_manager.refresh_cache(True)
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
+    logger.info(f"TOGGLE PROMO STATUS: action={action}, state={state}")
     
     promo_id = state.promo_id
     
     promos = content_manager.get_all_promos()
-    logger.info(f"promo_id from state: {promo_id} (type: {type(promo_id)})")
-    logger.info(f"promo ids in list: {[p['id'] for p in promos]}")
     
     promo = next((p for p in promos if int(p["id"]) == promo_id), None)
     if not promo:
@@ -217,7 +216,7 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
             state = await check_promos_available(update, state, content_manager)
 
         if state:
-            await show_promo(update, context, content_manager, state)
+            await show_promo(update, context, content_manager, action, state)
         
         return
 
@@ -230,45 +229,68 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
 
 async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Delete promo with confirmation"""
+    # Force refresh cache to get latest data
+    
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
+
+    show_status(update, state, "🗑️ Готовимся к удалению...")
+    await content_manager.refresh_cache(True)
     
-    promo_id = state.get("promo_id")
-    current_index = state.get("idx", 0)
+    promo_id = state.promo_id
     
+    # Check if promo still exists
+    promos = content_manager.get_all_promos()
+    promo = next((p for p in promos if int(p["id"]) == promo_id), None)
+    if not promo:
+        await show_status(update, state, f"❌ Предложение {promo_id} не найдено")
+        
+        # Find next available promo to show
+        state = await check_promos_available(update, state, content_manager)
+        
+        if state:
+            await show_promo(update, context, content_manager, action, state)
+        return
+    
+    # Show confirmation in status message (text only)
+    confirmation_text = f"🗑️ Удалить предложение {promo_id}? Это действие нельзя отменить."
+    await show_status(update, state, confirmation_text)
+    
+    # Show current promo with confirmation keyboard
     from keyboard_builder import KeyboardBuilder
-    reply_markup = KeyboardBuilder.admin_confirmation("Delete", promo_id, current_index)
-    await safe_edit_message(
-        update,
-        text=f"🗑️ **Delete Promo {promo_id}?**\n\nThis action cannot be undone.",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    reply_markup = KeyboardBuilder.admin_confirmation("Delete", state)
+    # Update the promo message with confirmation buttons
+    await show_promo(update, context, content_manager, action, state)
 
 async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Confirm and execute promo deletion"""
     query = update.callback_query
     action, state = StateManager.decode_callback_data(query.data)
+
+    show_status(update, state, "🗑️ Удаляем...")
+    await content_manager.refresh_cache(True)
     
-    promo_id = state.get("promo_id")
-    current_index = state.get("idx", 0)
+    promo_id = state.promo_id
     
     user_id, username, _ = get_user_info(update)
     
     if await content_manager.delete_promo(promo_id):
         log_admin_action(user_id, username, "DELETE_PROMO", f"promo_id={promo_id}")
         
-        # Check if user is still admin for displaying result
-        is_admin = await check_admin_access(content_manager, user_id, username)
+        # Show success status message
+        success_msg = f"✅ Предложение {promo_id} удалено"
+        await show_status(update, state, success_msg)
         
-        success_msg = f"✅ Promo {promo_id} deleted successfully"
-        await show_promo_with_status_message(update, context, content_manager, current_index, is_admin, user_id, success_msg)
+        # Find next available promo to show
+        state = await check_promos_available(update, state, content_manager)
+        
+        if state:
+            await show_promo(update, context, content_manager, action, state)
+
     else:
-        # Check if user is still admin for displaying result
-        is_admin = await check_admin_access(content_manager, user_id, username)
-        
-        error_msg = f"❌ Failed to delete promo {promo_id}"
-        await show_promo_with_status_message(update, context, content_manager, current_index, is_admin, user_id, error_msg)
+        # Show error status message
+        error_msg = f"❌ Не удалось удалить предложение {promo_id}"
+        await show_status(update, state, error_msg)
 
 async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Show editing options for specific promo"""
@@ -373,14 +395,9 @@ async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Decode state from callback
     action, state = StateManager.decode_callback_data(query.data)
-    current_index = state.get("idx", 0)
-    
-    # Check if user is admin
-    user_id, username, _ = get_user_info(update)
-    is_admin = await check_admin_access(content_manager, user_id, username)
     
     # Return to promo view
-    await show_promo(update, context, content_manager, current_index, is_admin, user_id)
+    await show_promo(update, context, content_manager, action, state)
 
 # ===== MESSAGE CREATION AND EDITING =====
 

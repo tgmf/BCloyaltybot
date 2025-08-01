@@ -110,37 +110,29 @@ async def safe_edit_message(update: Update, **kwargs):
     try:
         message_id = kwargs.pop("message_id", None)
         
-        if update.callback_query:
-            # Editing via callback query (button click)
-            if "media" in kwargs:
-                response = await update.callback_query.edit_message_media(**kwargs)
-            elif "text" in kwargs:
-                response = await update.callback_query.edit_message_text(**kwargs)
-            else:
-                logger.error("No text or media provided for edit")
-                return None
-        elif message_id:
-            # Editing via bot.edit_message (when no callback query)
-            bot = update.get_bot()
-            chat_id = update.effective_chat.id
+        if not message_id:
+            logger.error("No message_id provided for edit")
+            return None
             
-            if "media" in kwargs:
-                response = await bot.edit_message_media(
-                    chat_id=chat_id, 
-                    message_id=message_id, 
-                    **kwargs
-                )
-            elif "text" in kwargs:
-                response = await bot.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=message_id, 
-                    **kwargs
-                )
-            else:
-                logger.error("No text or media provided for edit")
-                return None
+        bot = update.get_bot()
+        chat_id = update.effective_chat.id
+        
+        logger.info(f"Editing message {message_id} in chat {chat_id} with kwargs: {kwargs}")
+        
+        if "media" in kwargs:
+            response = await bot.edit_message_media(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                **kwargs
+            )
+        elif "text" in kwargs:
+            response = await bot.edit_message_text(
+                chat_id=chat_id, 
+                message_id=message_id, 
+                **kwargs
+            )
         else:
-            logger.error("No callback query or message_id provided for edit")
+            logger.error("No text or media provided for edit")
             return None
         
         if response:
@@ -148,7 +140,7 @@ async def safe_edit_message(update: Update, **kwargs):
         return response
         
     except TelegramError as e:
-        logger.error(f"Failed to edit message: {e}")
+        logger.error(f"Failed to edit message {message_id}: {e}")
         return None
 
 async def safe_send_message(update: Update, **kwargs):

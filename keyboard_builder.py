@@ -6,6 +6,19 @@ class KeyboardBuilder:
     """Centralized keyboard builder using stateless state management system"""
     
     @staticmethod
+    def build_keyboard(action: str, state: BotState, promo_link: str = "") -> InlineKeyboardMarkup:
+        """Build appropriate keyboard based on action and state"""
+        if action == "adminDelete":
+            return KeyboardBuilder.admin_confirmation("Delete", state)
+        elif action == "adminEdit":
+            return KeyboardBuilder.admin_edit_menu(state)
+        elif action == "adminPreview":
+            return KeyboardBuilder.admin_preview(state)
+        else:
+            # Default: navigation keyboard (user + admin if verified)
+            return KeyboardBuilder.user_navigation(state, promo_link)
+    
+    @staticmethod
     def user_navigation(state: BotState, promo_link: str = "") -> InlineKeyboardMarkup:
         """
         Build navigation keyboard for users (and admins in user mode)
@@ -42,19 +55,19 @@ class KeyboardBuilder:
         if state.verified_at > 0:
             admin_buttons = [
                 InlineKeyboardButton(
-                    "📋 List",
+                    "📋 Список",
                     callback_data=StateManager.encode_state_for_callback("adminList", state)
                 ),
                 InlineKeyboardButton(
-                    "📝 Edit",
+                    "📝 Изменить",
                     callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
                 InlineKeyboardButton(
-                    "🔄 Toggle",
+                    "🔄 Вкл/Выкл",
                     callback_data=StateManager.encode_state_for_callback("adminToggle", state)
                 ),
                 InlineKeyboardButton(
-                    "🗑️ Delete",
+                    "🗑️ Удалить",
                     callback_data=StateManager.encode_state_for_callback("adminDelete", state)
                 )
             ]
@@ -68,15 +81,15 @@ class KeyboardBuilder:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "📝 Edit", 
+                    "📝 Изменить", 
                     callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
                 InlineKeyboardButton(
-                    "🔄 Toggle", 
+                    "🔄 Вкл/Выкл", 
                     callback_data=StateManager.encode_state_for_callback("adminToggle", state)
                 ),
                 InlineKeyboardButton(
-                    "🗑️ Delete", 
+                    "🗑️ Удалить", 
                     callback_data=StateManager.encode_state_for_callback("adminDelete", state)
                 ),
             ]
@@ -88,7 +101,7 @@ class KeyboardBuilder:
         """Keyboard with a single back button to promo view"""
         keyboard = [
             [InlineKeyboardButton(
-                "← Back to Promo", 
+                "← Назад",
                 callback_data=StateManager.encode_state_for_callback("backToPromo", state)
             )]
         ]
@@ -97,14 +110,15 @@ class KeyboardBuilder:
     @staticmethod
     def admin_confirmation(action: str, state: BotState):
         """Confirmation keyboard for delete or other actions"""
+        action_ru = "удаление" if action == "Delete" else action
         keyboard = [
             [
                 InlineKeyboardButton(
-                    f"✅ Confirm {action}", 
+                    f"✅ Подтвердить {action_ru}", 
                     callback_data=StateManager.encode_state_for_callback(f"confirm{action}", state)
                 ),
                 InlineKeyboardButton(
-                    "❌ Cancel", 
+                    "❌ Отмена", 
                     callback_data=StateManager.encode_state_for_callback("backToPromo", state)
                 ),
             ]
@@ -123,21 +137,21 @@ class KeyboardBuilder:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "📤 Publish", 
+                    "📤 Опубликовать", 
                     callback_data=StateManager.encode_state_for_callback("adminPublish", preview_state)
                 ),
                 InlineKeyboardButton(
-                    "📄 Draft", 
+                    "📄 Сохранить", 
                     callback_data=StateManager.encode_state_for_callback("adminDraft", preview_state)
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "📝 Edit", 
+                    "📝 Изменить", 
                     callback_data=StateManager.encode_state_for_callback("adminEditText", preview_state)
                 ),
                 InlineKeyboardButton(
-                    "❌ Cancel", 
+                    "❌ Отмена", 
                     callback_data=StateManager.encode_state_for_callback("adminCancel", preview_state)
                 ),
             ]
@@ -150,27 +164,27 @@ class KeyboardBuilder:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "📝 Text",
+                    "📝 Текст",
                     callback_data=StateManager.encode_state_for_callback("editText", state)
                 ),
                 InlineKeyboardButton(
-                    "🔗 Link",
+                    "🔗 Ссылку",
                     callback_data=StateManager.encode_state_for_callback("editLink", state)
                 )
             ],
             [
                 InlineKeyboardButton(
-                    "🖼️ Image",
+                    "🖼️ Изображение",
                     callback_data=StateManager.encode_state_for_callback("editImage", state)
                 ),
                 InlineKeyboardButton(
-                    "🔄 Replace All",
+                    "🔄 Заменить все",
                     callback_data=StateManager.encode_state_for_callback("editAll", state)
                 )
             ],
             [
                 InlineKeyboardButton(
-                    "← Back to Promo",
+                    "← Назад",
                     callback_data=StateManager.encode_state_for_callback("backToPromo", state)
                 )
             ]

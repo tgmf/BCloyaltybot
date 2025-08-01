@@ -56,7 +56,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
         return
     
     # Show first promo with state
-    await show_promo(update, context, content_manager, state_with_promo)
+    await show_promo(update, context, content_manager, "start", state_with_promo)
     
 
 # ===== PROMO DISPLAY =====
@@ -68,6 +68,7 @@ async def show_status(update: Update, state, text, parse_mode="Markdown") -> Bot
     Returns updated state with status_message_id set
     """
     if state.status_message_id:
+        logger.info(f"SHOW STATUS editing existing status message ID: {state.status_message_id}")
         await safe_edit_message(update, text=text, parse_mode=parse_mode, message_id=state.status_message_id)
     else:
         response = await safe_send_message(update, text=text, parse_mode=parse_mode)
@@ -78,7 +79,7 @@ async def show_status(update: Update, state, text, parse_mode="Markdown") -> Bot
 
     return state
 
-async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, state: BotState) -> BotState:
+async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, action, state: BotState) -> BotState:
     """Display promo using state management"""
     active_promos = content_manager.get_active_promos()
     
@@ -92,7 +93,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     promo_link = promo.get("link", "")
     
     # Build keyboard with current state and link
-    reply_markup = KeyboardBuilder.user_navigation(state, promo_link)
+    reply_markup = KeyboardBuilder.build_keyboard(action, state, promo_link)
 
     # Validate and clean image_file_id
     image_file_id = promo.get("image_file_id", "")
@@ -152,46 +153,6 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
             await show_status(update, state, "❌ Не удалось отправить сообщение")
             return state
 
-async def show_promo_with_status_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, index: int, verified_at: 0, user_id: int, status_message: str):
-    """Show promo with an additional status message"""
-    active_promos = content_manager.get_active_promos()
-    
-    if not active_promos or index < 0 or index >= len(active_promos):
-        await safe_edit_message(update, text=f"{status_message}\n\n📭 Нет доступных предложений.")
-        return
-    
-    promo = active_promos[index]
-    
-    # Add status message to promo text
-    display_text = f"{status_message}\n\n{promo['text']}"
-    
-    from keyboard_builder import KeyboardBuilder
-    reply_markup = KeyboardBuilder.user_navigation(
-        promo_id=promo["id"],
-        current_index=index,
-        total_promos=len(active_promos),
-        verified_at=verified_at,  # now passing verified_at
-        user_id=user_id,
-        status_message_id=None,  # TODO: get status message ID
-        is_list=False  # TODO: check if is_list
-    )
-    
-    # Send message
-    try:
-        if promo["image_file_id"]:
-            await update.callback_query.edit_message_media(
-                media=InputMediaPhoto(media=promo["image_file_id"], caption=display_text),
-                reply_markup=reply_markup
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                text=display_text,
-                reply_markup=reply_markup
-            )
-    except TelegramError as e:
-        error_msg = handle_telegram_error(e, "show_promo_with_status_message")
-        logger.error(f"Failed to show promo with message: {e}")
-
 # ===== NAVIGATION HANDLERS =====
 
 async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
@@ -231,23 +192,4 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     logger.info(f"Navigation: {current_index} -> {new_index}, promo_id: {state.promo_id} -> {new_promo_id}")
     
     # Show the target promo with updated state
-    await show_promo(update, context, content_manager, updated_state)
-        
-# async def update_chat(update, context, content_manager, state):
-    
-#     if state.action :
-#         # Handle empty state
-#         status_msg = "No promos available"
-#         if state.verified_at > 0:  # Admin
-#             status_msg += "\n\n📝 Send message to create promo"
-        
-#         await update_status_message(status_msg)
-#         return
-    
-#     # Normal promo display logic
-#     promo = get_promos_index_from_promo_id(state.promo_id, active_promos)
-#     if not promo:
-#         promo = active_promos[0]  # Fallback to first
-#         state.promo_id = promo["id"]
-    
-#     await show_promo(update, context, content_manager, state)
+    await show_promo(update, context, content_manager, action, updated_state)
