@@ -114,6 +114,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
                 "text": promo["text"],
                 "reply_markup": reply_markup,
                 "message_id": state.promo_message_id,
+                "parse_mode": "Markdown",
             }
         
         # Try to edit existing message
