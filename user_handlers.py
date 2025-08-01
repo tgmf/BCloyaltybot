@@ -205,7 +205,7 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     action, state = StateManager.decode_callback_data(query.data)
     
     # Check for available promos
-    if not check_promos_available(update, state, content_manager):
+    if not await check_promos_available(update, state, content_manager):
         return
     
     active_promos = content_manager.get_active_promos()
