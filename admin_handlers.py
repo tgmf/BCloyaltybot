@@ -37,7 +37,7 @@ async def ensure_admin_access(update: Update, context: ContextTypes.DEFAULT_TYPE
                  f"**Your Info:**\n"
                  f"• User ID: `{user_id}`\n"
                  f"• Username: @{username}" if username else f"• Username: Not set",
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
         logger.warning(f"Admin access denied for user {user_id} (@{username})")
         return False
@@ -97,13 +97,13 @@ async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                     photo=promo_image_file_id,
                     caption=display_text,
                     reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    parse_mode="MarkdownV2"
                 )
             else:
                 await update.message.reply_text(
                     text=display_text,
                     reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    parse_mode="MarkdownV2"
                 )
         except Exception as e:
             logger.error(f"Failed to send promo {i}: {e}")
@@ -115,7 +115,7 @@ async def toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
         return
     
     if not context.args:
-        await safe_send_message(update, text="📝 Usage: `/toggle {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Usage: `/toggle {promo_id}`", parse_mode="MarkdownV2")
         return
     
     try:
@@ -131,7 +131,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE, con
         return
     
     if not context.args:
-        await safe_send_message(update, text="📝 Usage: `/delete {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Usage: `/delete {promo_id}`", parse_mode="MarkdownV2")
         return
     
     try:
@@ -157,7 +157,7 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE, conte
         except ValueError:
             await safe_send_message(update, text="❌ Invalid promo ID. Please provide a number.")
     else:
-        await safe_send_message(update, text="📝 Usage: `/edit {promo_id}`", parse_mode="Markdown")
+        await safe_send_message(update, text="📝 Usage: `/edit {promo_id}`", parse_mode="MarkdownV2")
 
 # ===== INLINE ADMIN HANDLERS =====
 
@@ -180,7 +180,7 @@ async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     from keyboard_builder import KeyboardBuilder
     reply_markup = KeyboardBuilder.admin_back_to_promo(current_index)
-    await safe_edit_message(update, text=summary_text, reply_markup=reply_markup, parse_mode="Markdown")
+    await safe_edit_message(update, text=summary_text, reply_markup=reply_markup, parse_mode="MarkdownV2")
 
 async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: Toggle promo status and update current message"""
@@ -242,7 +242,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
         update,
         text=f"🗑️ **Delete Promo {promo_id}?**\n\nThis action cannot be undone.",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        parse_mode="MarkdownV2"
     )
 
 async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
@@ -345,7 +345,7 @@ async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await update.effective_chat.edit_message_text(
                 message_id=status_msg_id,
                 text=instruction_text,
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
             logger.info(f"Updated status message {status_msg_id} with edit instruction")
         except Exception as e:
@@ -353,13 +353,13 @@ async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             # Fallback: send new message
             await update.effective_chat.send_message(
                 text=instruction_text,
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
     else:
         logger.warning("No status message ID in callback, sending new message")
         await update.effective_chat.send_message(
             text=instruction_text,
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
     
     logger.info(f"Text edit mode activated for promo {promo_id} by user {user_id}")
@@ -440,13 +440,13 @@ async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 photo=pending["image_file_id"],
                 caption=preview_text,
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
         else:
             await update.message.reply_text(
                 text=preview_text,
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
     except TelegramError as e:
         error_msg = handle_telegram_error(e, "show_admin_preview")

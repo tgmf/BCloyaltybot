@@ -61,7 +61,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
 
 # ===== PROMO DISPLAY =====
 
-async def show_status(update: Update, state, text, parse_mode="Markdown") -> BotState:
+async def show_status(update: Update, state, text, parse_mode="MarkdownV2") -> BotState:
     """
     Post or update status message based on current state
     If state.status_message_id exists, edit it; otherwise, send a new message
@@ -105,7 +105,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         # Editing existing message - use media/text format
         if has_image:
             message_kwargs = {
-                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="Markdown"),
+                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="MarkdownV2"),
                 "reply_markup": reply_markup,
                 "message_id": state.promo_message_id
             }
@@ -114,7 +114,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
                 "text": promo["text"],
                 "reply_markup": reply_markup,
                 "message_id": state.promo_message_id,
-                "parse_mode": "Markdown",
+                "parse_mode": "MarkdownV2",
             }
         
         # Try to edit existing message
@@ -131,13 +131,13 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
                 "photo": promo["image_file_id"],
                 "caption": promo["text"],
                 "reply_markup": reply_markup,
-                "parse_mode": "Markdown"
+                "parse_mode": "MarkdownV2"
             }
         else:
             message_kwargs = {
                 "text": promo["text"],
                 "reply_markup": reply_markup,
-                "parse_mode": "Markdown"
+                "parse_mode": "MarkdownV2"
             }
         
         # Send new message
