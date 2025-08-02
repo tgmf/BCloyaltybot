@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
@@ -98,50 +99,46 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     # Validate and clean image_file_id
     image_file_id = promo.get("image_file_id", "")
     has_image = image_file_id and image_file_id.strip() and image_file_id != "None"
-    
     # Log the image status for debugging
     logger.info(f"Promo {state.promo_id} image status: '{image_file_id}' -> has_image: {has_image}")
-
+    
+    # If no image, use bot's description picture
+    if not has_image:
+        # Ensure bot image is cached
+        default_image = os.getenv("DEFAULT_IMAGE_FILE_ID")
+        if default_image:
+            image_file_id = default_image
+            has_image = True
+            logger.info(f"Using default image for promo {state.promo_id}")
+    
+    
     if state.promo_message_id:
-        # Editing existing message - use media/text format
-        if has_image:
-            message_kwargs = {
-                "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="Markdown"),
-                "reply_markup": reply_markup,
-                "message_id": state.promo_message_id
-            }
-        else:
-            message_kwargs = {
-                "text": promo["text"],
-                "reply_markup": reply_markup,
-                "message_id": state.promo_message_id,
-                "parse_mode": "Markdown",
-            }
+        # Always use edit_message_media since we always have an image now
+        message_kwargs = {
+            "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="Markdown"),
+            "reply_markup": reply_markup,
+            "message_id": state.promo_message_id
+        }
         
-        # Try to edit existing message
         logger.info(f"EDITING MESSAGE ID: {state.promo_message_id}")
         response = await safe_edit_message(update, **message_kwargs)
-        if not response:
+        
+        if response:
+            # Edit was successful
+            return state
+        else:
             logger.error("Failed to edit promo message")
             await show_status(update, state, "❌ Не удалось обновить чат")
-        return state
+            return state
     else:
-        # Sending new message - use photo/text format
-        if promo["image_file_id"]:
-            message_kwargs = {
-                "photo": promo["image_file_id"],
-                "caption": promo["text"],
-                "reply_markup": reply_markup,
-                "parse_mode": "Markdown"
-            }
-        else:
-            message_kwargs = {
-                "text": promo["text"],
-                "reply_markup": reply_markup,
-                "parse_mode": "Markdown"
-            }
+        # Send new message - always use photo format since we always have an image
+        message_kwargs = {
+            "photo": image_file_id,
+            "caption": promo["text"],
+            "reply_markup": reply_markup,
+            "parse_mode": "Markdown"
+        }
         
-        # Send new message
         logger.info("SENDING NEW PROMO MESSAGE")
         response = await safe_send_message(update, **message_kwargs)
         

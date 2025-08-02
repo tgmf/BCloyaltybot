@@ -40,7 +40,6 @@ class ContentManager:
             logger.error(f"Failed to initialize Google Sheets: {e}")
             self.client = None
             self.sheet = None
-            
 
     async def refresh_cache(self, force: bool = False):
         """Refresh content cache from Google Sheets"""
