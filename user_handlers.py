@@ -4,12 +4,12 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 # Import auth functions
-from auth import get_user_info, verify_admin_access
+from auth import get_user_info, refresh_admin_verification
 # Import stateless utilities (now in utils)
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    check_promos_available, get_promo_id_from_promos_index, log_update, log_response, safe_edit_message, safe_send_message, handle_telegram_error, get_promos_index_from_promo_id
+    check_promos_available, get_promo_id_from_promos_index, log_update, safe_edit_message, safe_send_message, get_promos_index_from_promo_id
 )
 
 logger = logging.getLogger(__name__)
@@ -24,16 +24,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     logger.info(f"User {user_id} (@{username}) started bot")
     
-    # Check admin status and get verified_at timestamp
-    verified_at = await verify_admin_access(content_manager, user_id, username)
-    
     # Create initial state with status message ID
     state = StateManager.create_state(
-        promo_id=0,  # First promo
-        verified_at=verified_at,
-        status_message_id=0,
+        promo_id=0,  # Will be updated after showing first promo
+        verified_at=1,  # Will be updated after verification
+        status_message_id=0, # Will be set when status is sent
         promo_message_id=0  # Will be set when promo is sent
     )
+    
+    # Check admin status and get verified_at timestamp
+    state = await refresh_admin_verification(state, content_manager, user_id, username)
     
     # Send welcome message
     welcome_text = f"🎉 Добро пожаловать в Business Club, {first_name}!"
@@ -81,10 +81,10 @@ async def show_status(update: Update, state, text, parse_mode="Markdown") -> Bot
 
 async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, action, state: BotState) -> BotState:
     """Display promo using state management"""
-    active_promos = content_manager.get_active_promos()
+    promos = content_manager.get_all_promos()
     
     # Find the promo by ID
-    promo = next((p for p in active_promos if p["id"] == state.promo_id), None)
+    promo = next((p for p in promos if p["id"] == state.promo_id), None)
     if not promo:
         await show_status(update, state, "❌ Не удалось найти это предложение.")
         return state

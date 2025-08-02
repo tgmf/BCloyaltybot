@@ -5,12 +5,12 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 # Import auth functions (mainly for get_user_info and logging)
-from auth import get_user_info, log_admin_action, check_admin_access
+from auth import get_user_info, log_admin_action, check_admin_access, refresh_admin_verification
 # Import user handlers for shared functions
-from user_handlers import show_promo, show_status
+from user_handlers import show_promo, show_status, start_command
 # Import stateless utilities (now in utils)
 from utils import (
-    check_promos_available, log_update, log_response, extract_message_components, validate_promo_data,
+    check_promos_available, cleanup_chat_messages, log_update, extract_message_components, validate_promo_data,
     safe_edit_message, safe_send_message, handle_telegram_error, get_status_emoji, truncate_text,
     format_admin_summary, format_promo_preview,
 )
@@ -50,15 +50,7 @@ async def ensure_admin_access(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Sign in command for admin access verification"""
     user_id, username, first_name = get_user_info(update)
-    
-    # state_manager = get_state_manager()
-    # verified_at = await state_manager.verify_admin_access(user_id, username)
-    
-    # if verified_at > 0:
-    #     await update.message.reply_text(f"✅ Welcome {first_name}! You now have admin access.")
-    #     # Show first promo with admin controls using existing show_promo
-    # else:
-    #     await update.message.reply_text("❌ Admin access not found. Contact administrator.")
+    return
 
 async def list_promos_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Admin: List all promos with management buttons (creates new messages)"""
@@ -402,41 +394,61 @@ async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TY
 # ===== MESSAGE CREATION AND EDITING =====
 
 async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
-    """Handle new message from admin (create/edit promo)"""
+    """Handle new message from admin (create promo as draft immediately)"""
     log_update(update, "ADMIN MESSAGE HANDLER")
     
     user_id, username, _ = get_user_info(update)
     
-    # Check if user is admin (stateless)
-    is_admin = await check_admin_access(content_manager, user_id, username)
-    if not is_admin:
-        logger.info("Non-admin user sent message, ignoring")
-        return  # Ignore messages from non-admins
+    # Create state with admin verification
+    state = StateManager.create_state(
+        promo_id=0,  # Will be updated after saving
+        verified_at=1, # Will be updated after verification
+        status_message_id=0,  # Will be updated after cleanup
+        promo_message_id=0   # Will be updated after showing promo
+    )
     
-    message = update.message
+    # Get current state (admin should have verified_at > 0)
+    state = await refresh_admin_verification(state, content_manager, user_id, username)
+
+    # Clean up existing messages before showing new promo
+    await cleanup_chat_messages(update)
+    
+    # Check if user has admin access after verification  
+    if state.verified_at == 0:
+        logger.info("Non-admin user sent message, redirecting to /start")
+        await start_command(update, context, content_manager)
+        return
     
     # Extract message components
-    components = extract_message_components(message)
+    components = extract_message_components(update.message)
     logger.info(f"EXTRACTED MESSAGE DATA: {components}")
     
-    # Check if this is an edit operation
-    existing_pending = pending_messages_store.get(user_id, {})
-    edit_id = existing_pending.get("edit_id")
+    # Immediately save as draft to DB
+    promo_id = await content_manager.add_promo(
+        text=components["text"],
+        image_file_id=components["image_file_id"],
+        link=components["link"],
+        created_by=str(user_id)
+        # status defaults to "draft" in add_promo
+    )
     
-    # Store pending message
-    pending_data = {
-        "text": components["text"],
-        "image_file_id": components["image_file_id"],
-        "link": components["link"],
-        "created_by": str(user_id),
-        "edit_id": edit_id
-    }
+    if not promo_id:
+        await safe_send_message(update, text="❌ Не удалось сохранить предложение")
+        return
     
-    pending_messages_store[user_id] = pending_data
-    logger.info(f"STORED PENDING MESSAGE: {pending_data}")
+    logger.info(f"Created draft promo with ID: {promo_id}")
     
-    # Show preview
-    await show_admin_preview(update, context, content_manager, user_id)
+    # Show status "promo saved as draft" and update state with status_message_id
+    state = await show_status(update, state, "📄 Предложение сохранено как черновик")
+    
+    # Update state with new promo_id
+    state = StateManager.update_state(state, promo_id=promo_id)
+    
+    # Show the new promo with preview buttons (this will update promo_message_id in state)
+    await show_promo(update, context, content_manager, "preview", state)
+    
+    # Log admin action
+    log_admin_action(user_id, username, "CREATE_DRAFT", f"promo_id={promo_id}")
 
 async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, user_id: int):
     """Show preview of pending message"""
@@ -470,75 +482,6 @@ async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE,
         logger.error(f"Failed to show admin preview: {e}")
         await safe_send_message(update, text=f"❌ {error_msg}")
 
-async def publish_pending_message(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, status: str):
-    """Publish pending message with given status"""
-    query = update.callback_query
-    action, state = StateManager.decode_callback_data(query.data)
-    
-    user_id = state.get("userId")
-    if not user_id:
-        logger.error("No userId in callback state")
-        await safe_send_message(update, text="❌ Invalid request.")
-        return
-    
-    pending = pending_messages_store.get(user_id)
-    
-    if not pending:
-        await safe_send_message(update, text="❌ No pending message found.")
-        return
-    
-    user_id_str, username, _ = get_user_info(update)
-    edit_id = pending.get("edit_id")
-    
-    logger.info(f"Publishing message: user_id={user_id}, status={status}, edit_id={edit_id}")
-    
-    if edit_id:
-        # This is an edit operation - update existing promo
-        success = await content_manager.update_promo(
-            edit_id,
-            text=pending["text"],
-            image_file_id=pending["image_file_id"],
-            link=pending["link"]
-        )
-        
-        if success:
-            await content_manager.update_promo_status(edit_id, status)
-            # Clear pending message
-            if user_id in pending_messages_store:
-                del pending_messages_store[user_id]
-            
-            log_admin_action(user_id_str, username, "EDIT_PROMO", f"promo_id={edit_id}, status={status}")
-            
-            await update.callback_query.message.reply_text(
-                f"✅ Promo {edit_id} updated and set to {status}!"
-            )
-        else:
-            await update.callback_query.message.reply_text("❌ Failed to update promo.")
-    else:
-        # This is a new promo
-        logger.info(f"Creating new promo with data: {pending}")
-        
-        promo_id = await content_manager.add_promo(
-            text=pending["text"],
-            image_file_id=pending["image_file_id"],
-            link=pending["link"],
-            created_by=pending["created_by"]
-        )
-        
-        if promo_id:
-            await content_manager.update_promo_status(promo_id, status)
-            # Clear pending message
-            if user_id in pending_messages_store:
-                del pending_messages_store[user_id]
-            
-            log_admin_action(user_id_str, username, "CREATE_PROMO", f"promo_id={promo_id}, status={status}")
-            
-            await update.callback_query.message.reply_text(
-                f"✅ Promo {promo_id} {'published' if status == 'active' else 'saved as draft'}!"
-            )
-        else:
-            await update.callback_query.message.reply_text("❌ Failed to save promo.")
-
 # ===== MAIN ADMIN CALLBACK HANDLER =====
 
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
@@ -565,10 +508,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     # Route to appropriate handler
     if action == "adminPublish":
         logger.info("Routing to publish_pending_message with status 'active'")
-        await publish_pending_message(update, context, content_manager, "active")
-    elif action == "adminDraft":
-        logger.info("Routing to publish_pending_message with status 'draft'")
-        await publish_pending_message(update, context, content_manager, "draft")
+        # await publish_pending_message(update, context, content_manager, "active")
     elif action == "adminEditText":
         await query.message.reply_text("📝 Send the updated message:")
     elif action == "adminCancel":

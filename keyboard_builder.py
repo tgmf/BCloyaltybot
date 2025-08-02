@@ -25,30 +25,26 @@ class KeyboardBuilder:
         """
         keyboard = []
 
-        # Create visit link button - URL if link exists, disabled if not
-        if promo_link:
-            visit_button = InlineKeyboardButton(
-                "🔗  Перейти",
-                url=promo_link
-            )
-        else:
-            visit_button = InlineKeyboardButton(
-                "🔗  Скоро",
-                callback_data="disabled"
-            )
-    
         # Navigation buttons - use current state, handlers will update promo_id
         nav_buttons = [
             InlineKeyboardButton(
                 "《",
                 callback_data=StateManager.encode_state_for_callback("prev", state)
-            ),
-            visit_button,
+            )
+        ]
+        if promo_link:
+            nav_buttons.append(
+                InlineKeyboardButton(
+                    "🔗  Перейти",
+                    url=promo_link
+                )
+            )
+        nav_buttons.append(
             InlineKeyboardButton(
                 "》",
                 callback_data=StateManager.encode_state_for_callback("next", state)
             )
-        ]
+        )
         keyboard.append(nav_buttons)
         
         # Add admin buttons if user is admin

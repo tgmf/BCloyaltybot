@@ -193,9 +193,30 @@ def extract_message_components(message) -> Dict[str, str]:
     if message.photo:
         components["image_file_id"] = message.photo[-1].file_id
     
-    # Extract link from entities
+    # Extract link from entities (works for text messages, not captions)
     if message.entities:
         components["link"] = extract_link_from_entities(components["text"], message.entities)
+        logger.info(f"Extracted link from entities: '{components['link']}'")
+    
+    # Fallback: extract first URL from text using regex (works for both text and captions)
+    if not components["link"] and components["text"]:
+        import re
+        url_pattern = r'https?://[^\s]+'
+        urls = re.findall(url_pattern, components["text"])
+        if urls:
+            components["link"] = urls[0]
+            logger.info(f"Extracted link from regex: '{components['link']}'")
+    
+    # Clean up: remove the extracted link from text to avoid duplication
+    if components["link"] and components["text"]:
+        # Remove the link from text (with surrounding whitespace)
+        import re
+        link_escaped = re.escape(components["link"])
+        # Remove link with optional surrounding whitespace/newlines
+        components["text"] = re.sub(r'\s*' + link_escaped + r'\s*', '', components["text"])
+        # Clean up any trailing whitespace/newlines
+        components["text"] = components["text"].strip()
+        logger.info(f"Cleaned text after link removal: '{components['text']}'")
     
     return components
 
@@ -321,3 +342,28 @@ async def check_promos_available(update, state, content_manager) -> BotState:
             state = StateManager.update_state(state, promo_message_id=response.message_id)
     
     return state
+
+async def cleanup_chat_messages(update):
+    """Clean up all messages in chat before showing new content"""
+    bot = update.get_bot()
+    chat_id = update.effective_chat.id
+    current_msg_id = update.message.message_id
+    
+    # Delete user's message + try to delete recent bot messages
+    # We only ever have 2 bot messages max, so range 1-3 should cover everything
+    messages_to_delete = [current_msg_id]  # User's message
+    
+    for i in range(1, 4):  # Try 3 messages before user's message
+        messages_to_delete.append(current_msg_id - i)
+    
+    try:
+        await bot.delete_messages(chat_id=chat_id, message_ids=messages_to_delete)
+        logger.info(f"Deleted messages: {messages_to_delete}")
+    except TelegramError as e:
+        logger.warning(f"Failed to delete some messages: {e}")
+        # Individual deletion fallback
+        for msg_id in messages_to_delete:
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except TelegramError:
+                pass  # Ignore individual failures

@@ -29,8 +29,7 @@ async def verify_admin_access(content_manager, user_id: int, username: str = "")
     Checks admin status and returns verified_at timestamp if successful, else 0.
     Call this on /start or /sign_in, and again only if verification expires.
     """
-    if await check_admin_access(content_manager, user_id, username):
-        return int(time.time())
+
     return 0
 
 def get_user_info(update: Update) -> Tuple[int, str, str]:
@@ -75,7 +74,10 @@ async def refresh_admin_verification(state, content_manager, user_id: int, usern
         # Still valid
         return state
     # Verification expired, re-check
-    new_verified_at = await verify_admin_access(content_manager, user_id, username)
+    new_verified_at = 0
+    if await check_admin_access(content_manager, user_id, username):
+        new_verified_at = int(time.time())
+        logger.info(f"Admin access granted for user {user_id}")
     state = StateManager.update_state(state, verified_at = new_verified_at)
     if new_verified_at == 0:
         logger.info(f"Admin access revoked for user {user_id}")
