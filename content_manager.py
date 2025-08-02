@@ -110,17 +110,6 @@ class ContentManager:
         """Get all promo messages"""
         return self.promos_cache.copy()
     
-    def is_authorized(self, phone_number: str) -> bool:
-        """Check if phone number is authorized"""
-        return phone_number in self.auth_cache
-    
-    async def get_promo_by_id(self, promo_id: int) -> Optional[Dict]:
-        """Get specific promo by ID"""
-        for promo in self.promos_cache:
-            if promo["id"] == promo_id:
-                return promo.copy()
-        return None
-    
     async def add_promo(self, text: str, image_file_id: str, link: str, created_by: str, order: Optional[int] = None) -> int:
         """Add new promo message"""
         if not self.client or not self.sheet:

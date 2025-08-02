@@ -77,12 +77,9 @@ async def refresh_admin_verification(state, content_manager, user_id: int, usern
     new_verified_at = 0
     if await check_admin_access(content_manager, user_id, username):
         new_verified_at = int(time.time())
-        logger.info(f"Admin access granted for user {user_id}")
     state = StateManager.update_state(state, verified_at = new_verified_at)
     if new_verified_at == 0:
         logger.info(f"Admin access revoked for user {user_id}")
-    else:
-        logger.info(f"Admin access refreshed for user {user_id}")
     return state
 
 # ===== AUTH LOGGING =====

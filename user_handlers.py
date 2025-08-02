@@ -35,20 +35,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     # Check admin status and get verified_at timestamp
     state = await refresh_admin_verification(state, content_manager, user_id, username)
-    
-    # Send welcome message
-    welcome_text = f"🎉 Добро пожаловать в Business Club, {first_name}!"
-    
-    # Send welcome message and capture message ID
-    state = await show_status(update, state, text=welcome_text)
 
-    init_text = f"⏲️ Собираем предложения для вас... Пожалуйста, подождите."
+    init_text = f"🎉 Добро пожаловать в Business Club, {first_name}!"
 
     # Show initial status message
     response = await safe_send_message(update, text=init_text)
     promo_message_id = response.message_id if response else 0
 
     state = StateManager.update_state(state, promo_message_id=promo_message_id)
+    
+    # Send welcome message
+    welcome_text = f"{first_name}, для вас сегодня доступно {len(content_manager.get_active_promos())} предложений!"
+    
+    # Send welcome message and capture message ID
+    state = await show_status(update, state, text=welcome_text)
 
     state_with_promo = await check_promos_available(update, state, content_manager)
 

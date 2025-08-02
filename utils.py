@@ -196,7 +196,6 @@ def extract_message_components(message) -> Dict[str, str]:
     # Extract link from entities (works for text messages, not captions)
     if message.entities:
         components["link"] = extract_link_from_entities(components["text"], message.entities)
-        logger.info(f"Extracted link from entities: '{components['link']}'")
     
     # Fallback: extract first URL from text using regex (works for both text and captions)
     if not components["link"] and components["text"]:
@@ -205,7 +204,6 @@ def extract_message_components(message) -> Dict[str, str]:
         urls = re.findall(url_pattern, components["text"])
         if urls:
             components["link"] = urls[0]
-            logger.info(f"Extracted link from regex: '{components['link']}'")
     
     # Clean up: remove the extracted link from text to avoid duplication
     if components["link"] and components["text"]:
@@ -216,7 +214,6 @@ def extract_message_components(message) -> Dict[str, str]:
         components["text"] = re.sub(r'\s*' + link_escaped + r'\s*', '', components["text"])
         # Clean up any trailing whitespace/newlines
         components["text"] = components["text"].strip()
-        logger.info(f"Cleaned text after link removal: '{components['text']}'")
     
     return components
 
@@ -317,13 +314,13 @@ async def check_promos_available(update, state, content_manager) -> BotState:
         if all_promos:
             # Admin with inactive promos - show list
             no_promos_text = "📭 Нет активных предложений.\n\n📋 Список всех предложений:"
-            for promo in all_promos[:5]:  # Limit to 5 to avoid long messages
+            for promo in all_promos[:10]:  # Limit to 10 to avoid long messages
                 status_emoji = get_status_emoji(promo.get("status", "unknown"))
                 promo_text = truncate_text(promo.get("text", "No text"), 40)
                 no_promos_text += f"\n{status_emoji} ID {promo.get('id', '?')}: {promo_text}"
-            
-            if len(all_promos) > 5:
-                no_promos_text += f"\n... и ещё {len(all_promos) - 5}"
+
+            if len(all_promos) > 10:
+                no_promos_text += f"\n... и ещё {len(all_promos) - 10}"
         else:
             # Admin with no promos at all
             no_promos_text = ("📭 Нет предложений.\n\n"
@@ -352,8 +349,8 @@ async def cleanup_chat_messages(update):
     # Delete user's message + try to delete recent bot messages
     # We only ever have 2 bot messages max, so range 1-3 should cover everything
     messages_to_delete = [current_msg_id]  # User's message
-    
-    for i in range(1, 4):  # Try 3 messages before user's message
+
+    for i in range(1, 5):  # Try 4 messages before user's message
         messages_to_delete.append(current_msg_id - i)
     
     try:

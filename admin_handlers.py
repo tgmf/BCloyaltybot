@@ -433,54 +433,23 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     )
     
     if not promo_id:
-        await safe_send_message(update, text="❌ Не удалось сохранить предложение")
+        await safe_send_message(update, text="❌ Не удалось сохранить предложение. Побробуйте еще раз: /start")
         return
     
     logger.info(f"Created draft promo with ID: {promo_id}")
+    response = await safe_send_message(update, text=f"📝 Готовим новое предложение")
+    promo_message_id = response.message_id if response else 0
     
     # Show status "promo saved as draft" and update state with status_message_id
     state = await show_status(update, state, "📄 Предложение сохранено как черновик")
     
     # Update state with new promo_id
-    state = StateManager.update_state(state, promo_id=promo_id)
-    
+    state = StateManager.update_state(state, promo_id=promo_id, promo_message_id=promo_message_id)
     # Show the new promo with preview buttons (this will update promo_message_id in state)
-    await show_promo(update, context, content_manager, "preview", state)
+    await show_promo(update, context, content_manager, "adminPreview", state)
     
     # Log admin action
     log_admin_action(user_id, username, "CREATE_DRAFT", f"promo_id={promo_id}")
-
-async def show_admin_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, user_id: int):
-    """Show preview of pending message"""
-    pending = pending_messages_store.get(user_id)
-    
-    if not pending:
-        await safe_send_message(update, text="❌ No pending message found.")
-        return
-    
-    edit_id = pending.get("edit_id")
-    preview_text = format_promo_preview(pending, edit_id)
-    
-    from keyboard_builder import KeyboardBuilder
-    reply_markup = KeyboardBuilder.admin_preview(user_id)
-    try:
-        if pending["image_file_id"]:
-            await update.message.reply_photo(
-                photo=pending["image_file_id"],
-                caption=preview_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text(
-                text=preview_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-    except TelegramError as e:
-        error_msg = handle_telegram_error(e, "show_admin_preview")
-        logger.error(f"Failed to show admin preview: {e}")
-        await safe_send_message(update, text=f"❌ {error_msg}")
 
 # ===== MAIN ADMIN CALLBACK HANDLER =====
 
@@ -507,10 +476,10 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     # Route to appropriate handler
     if action == "adminPublish":
-        logger.info("Routing to publish_pending_message with status 'active'")
-        # await publish_pending_message(update, context, content_manager, "active")
+        await toggle_promo_status_inline(update, context, content_manager)
+        logger.info(f"Admin {user_id} published promo {state.promo_id}")
     elif action == "adminEditText":
-        await query.message.reply_text("📝 Send the updated message:")
+        await query.message.reply_text("📝 Пришлите новый текст:")
     elif action == "adminCancel":
         # Clear pending and return to promo view
         user_id_int = int(user_id) if isinstance(user_id, str) else user_id

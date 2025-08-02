@@ -55,7 +55,7 @@ class KeyboardBuilder:
                     callback_data=StateManager.encode_state_for_callback("adminList", state)
                 ),
                 InlineKeyboardButton(
-                    "📝 Изменить",
+                    "✏️ Правка",
                     callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
                 InlineKeyboardButton(
@@ -133,22 +133,22 @@ class KeyboardBuilder:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "📤 Опубликовать", 
+                    "🟢 Опубликовать", 
                     callback_data=StateManager.encode_state_for_callback("adminPublish", preview_state)
                 ),
                 InlineKeyboardButton(
-                    "📄 Сохранить", 
-                    callback_data=StateManager.encode_state_for_callback("adminDraft", preview_state)
+                    "✏️ Правка", 
+                    callback_data=StateManager.encode_state_for_callback("adminEdit", preview_state)
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    "📝 Изменить", 
-                    callback_data=StateManager.encode_state_for_callback("adminEditText", preview_state)
+                    "← Назад",
+                    callback_data=StateManager.encode_state_for_callback("backToPromo", preview_state)
                 ),
                 InlineKeyboardButton(
-                    "❌ Отмена", 
-                    callback_data=StateManager.encode_state_for_callback("adminCancel", preview_state)
+                    "🗑️ Удалить", 
+                    callback_data=StateManager.encode_state_for_callback("adminDelete", preview_state)
                 ),
             ]
         ]
