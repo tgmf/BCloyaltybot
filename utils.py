@@ -364,3 +364,19 @@ async def cleanup_chat_messages(update):
                 await bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except TelegramError:
                 pass  # Ignore individual failures
+
+    ## ===== KEYBOARD MANAGEMENT =====
+    
+async def update_keyboard_by_action(update: Update, query, action: str, state: BotState):
+    from keyboard_builder import KeyboardBuilder
+    from user_handlers import show_status
+    """Update keyboard based on action"""
+    
+    # Update promo keyboard to show only back button
+    reply_markup = KeyboardBuilder.build_keyboard(action, state)
+    try:
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+    except TelegramError as e:
+        error_msg = handle_telegram_error(e, f"update_keyboard_by_action {action}")
+        logger.error(f"Failed to update keyboard: {e}")
+        await show_status(update, state, text=f"❌ {error_msg}")

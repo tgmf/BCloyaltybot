@@ -10,7 +10,7 @@ from auth import get_user_info, refresh_admin_verification
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    check_promos_available, get_promo_id_from_promos_index, log_update, safe_edit_message, safe_send_message, get_promos_index_from_promo_id
+    check_promos_available, cleanup_chat_messages, get_promo_id_from_promos_index, log_update, safe_edit_message, safe_send_message, get_promos_index_from_promo_id
 )
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     log_update(update, "START COMMAND")
     
     user_id, username, first_name = get_user_info(update)
+    
+    await cleanup_chat_messages(update)
     
     logger.info(f"User {user_id} (@{username}) started bot")
     
@@ -35,6 +37,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     # Check admin status and get verified_at timestamp
     state = await refresh_admin_verification(state, content_manager, user_id, username)
+    
+    if state.verified_at == 0:
+        welcome_text = f"🎉 Привет, {first_name},\nдля вас сегодня доступно {len(content_manager.get_active_promos())} предложений!"
+        # Send welcome message and capture message ID
+        state = await show_status(update, state, text=welcome_text)
 
     init_text = f"🎉 Добро пожаловать в Business Club, {first_name}!"
 
@@ -44,11 +51,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
 
     state = StateManager.update_state(state, promo_message_id=promo_message_id)
     
-    # Send welcome message
-    welcome_text = f"{first_name}, для вас сегодня доступно {len(content_manager.get_active_promos())} предложений!"
-    
-    # Send welcome message and capture message ID
-    state = await show_status(update, state, text=welcome_text)
+    if state.verified_at > 0:
+        welcome_text = f"🎉 Привет, {first_name}, доступно {len(content_manager.get_all_promos())} предложений (активно: {len(content_manager.get_active_promos())})"
+        welcome_text += f"\nЧтобы добавить новое предложение отправьте его в чат"
+        # Send welcome message and capture message ID
+        state = await show_status(update, state, text=welcome_text)
 
     state_with_promo = await check_promos_available(update, state, content_manager)
 

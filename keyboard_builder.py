@@ -14,6 +14,8 @@ class KeyboardBuilder:
             return KeyboardBuilder.admin_edit_menu(state)
         elif action == "adminPreview":
             return KeyboardBuilder.admin_preview(state)
+        elif action == "editText" or action == "editLink" or action == "editImage" or action == "editAll":
+            return KeyboardBuilder.admin_back_to_promo(state)
         else:
             # Default: navigation keyboard (user + admin if verified)
             return KeyboardBuilder.user_navigation(state, promo_link)
@@ -77,7 +79,7 @@ class KeyboardBuilder:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "📝 Изменить", 
+                    "✏️ Правка", 
                     callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
                 InlineKeyboardButton(
