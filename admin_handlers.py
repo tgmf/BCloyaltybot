@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 from typing import Tuple, Dict, Any
@@ -12,9 +13,7 @@ from content_manager import ContentManager
 from user_handlers import show_promo, show_status, start_command
 # Import stateless utilities (now in utils)
 from utils import (
-    check_promos_available, cleanup_chat_messages, log_update, extract_message_components, update_keyboard_by_action, validate_promo_data,
-    safe_edit_message, safe_send_message, handle_telegram_error, get_status_emoji, truncate_text,
-    format_admin_summary, format_promo_preview,
+    check_promos_available, cleanup_chat_messages, log_update, extract_message_components, show_admin_promo_status, update_keyboard_by_action, safe_send_message,
 )
 from state_manager import StateManager
 from keyboard_builder import KeyboardBuilder
@@ -25,29 +24,6 @@ logger = logging.getLogger(__name__)
 # We'll use user_id as key and store pending message data
 pending_messages_store: Dict[int, Dict[str, Any]] = {}
 
-# ===== ADMIN ACCESS HELPERS =====
-
-async def ensure_admin_access(update: Update, content_manager: ContentManager) -> bool:
-    """Ensure user has admin access (stateless check)"""
-    user_id, username, _ = get_user_info(update)
-    
-    is_admin = await check_admin_access(content_manager, user_id, username)
-    
-    if not is_admin:
-        await safe_send_message(
-            update,
-            text=f"🔐 Access denied. This command requires admin privileges.\n\n"
-                 f"**Your Info:**\n"
-                 f"• User ID: `{user_id}`\n"
-                 f"• Username: @{username}" if username else f"• Username: Not set",
-            parse_mode="Markdown"
-        )
-        logger.warning(f"Admin access denied for user {user_id} (@{username})")
-        return False
-    
-    logger.info(f"Admin access granted for user {user_id} (@{username})")
-    return True
-
 # ===== ADMIN COMMANDS =====
 
 async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
@@ -57,25 +33,45 @@ async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, co
 
 # ===== INLINE ADMIN HANDLERS =====
 
-async def list_promos_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
-    """Admin: Show brief list of promos in current message"""
-    await content_manager.refresh_cache()
-    all_promos = content_manager.get_all_promos()
+async def toggle_view_mode_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
+    """Admin: Toggle between 'active only' and 'show all' modes"""
+    log_update(update, "TOGGLE VIEW MODE")
     
-    if not all_promos:
-        await safe_edit_message(update, text="📭 No promos found.")
-        return
-    
-    # Get current index from callback for back button
     query = update.callback_query
+    await query.answer()
+    
+    # Decode state from callback
     action, state = StateManager.decode_callback_data(query.data)
-    current_index = state.get("idx", 0)
     
-    # Create summary text
-    summary_text = format_admin_summary(all_promos, max_count=10)
+    # Toggle the mode
+    new_show_all_mode = not state.show_all_mode
+    updated_state = StateManager.update_state(state, show_all_mode=new_show_all_mode)
     
-    reply_markup = KeyboardBuilder.admin_back_to_promo(current_index)
-    await safe_edit_message(update, text=summary_text, reply_markup=reply_markup, parse_mode="Markdown")
+    user_id, username, _ = get_user_info(update)
+    
+    # Log the action
+    mode_from = "all" if state.show_all_mode else "active"
+    mode_to = "all" if new_show_all_mode else "active"
+    log_admin_action(user_id, username, "TOGGLE_VIEW_MODE", f"{mode_from} → {mode_to}")
+    
+    # Show status notification
+    if new_show_all_mode:
+        status_text = "👁️ Режим просмотра: ВСЕ предложения"
+    else:
+        status_text = "👁️ Режим просмотра: только АКТИВНЫЕ предложения"
+    
+    await show_status(update, updated_state, status_text)
+    
+    # Find appropriate promo to show in new mode
+    updated_state = await check_promos_available(update, updated_state, content_manager, preserve_position=True)
+    
+    if updated_state:
+        # Show promo with updated state and keyboard
+        await show_promo(update, context, content_manager, action, updated_state)
+        
+        # Wait 3 seconds, then show detailed admin status
+        await asyncio.sleep(3)
+        await show_admin_promo_status(update, updated_state, content_manager)
 
 async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Toggle promo status and update current message"""
@@ -86,11 +82,15 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
     
     promo_id = state.promo_id
     
+    # Get all promos to find current promo
     promos = content_manager.get_all_promos()
     
     promo = next((p for p in promos if int(p["id"]) == promo_id), None)
     if not promo:
         await show_status(update, state, text=f"❌ Предложение {promo_id} не найдено")
+        state = await check_promos_available(update, state, content_manager, preserve_position=True)
+        if state:
+            await show_promo(update, context, content_manager, action, state)
         return
     
     old_status = promo["status"]
@@ -101,26 +101,22 @@ async def toggle_promo_status_inline(update: Update, context: ContextTypes.DEFAU
     if await content_manager.update_promo_status(promo_id, new_status):
         log_admin_action(user_id, username, "TOGGLE_PROMO", f"promo_id={promo_id}, {old_status}→{new_status}")
         
-        # Show success status message
-        success_msg = f"✅ Предложение {promo_id}: {old_status} → {new_status}"
-        await show_status(update, state, success_msg)
-
-        # Determine which promo to show
-        if new_status == "inactive":
-            # If deactivated, show next active promo or error message
-            state = await check_promos_available(update, state, content_manager)
-
-        if state:
-            await show_promo(update, context, content_manager, action, state)
+        # Always stay on the current promo regardless of new status or mode
+        # show_promo can handle any promo (active/inactive/draft)
+        await show_promo(update, context, content_manager, action, state)
         
-        return
-
+        # Show rich admin status with updated information
+        await show_admin_promo_status(update, state, content_manager)
+        
     else:
-        # Show error status message
+        # DB error - show error message and find fallback promo
         error_msg = f"❌ Не удалось обновить предложение {promo_id}"
         await show_status(update, state, error_msg)
         
-    return
+        # Find fallback promo and show it
+        state = await check_promos_available(update, state, content_manager, preserve_position=True)
+        if state:
+            await show_promo(update, context, content_manager, action, state)
 
 async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Delete promo with confirmation"""
@@ -141,7 +137,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_status(update, state, f"❌ Предложение {promo_id} не найдено")
         
         # Find next available promo to show
-        state = await check_promos_available(update, state, content_manager)
+        state = await check_promos_available(update, state, content_manager, preserve_position=True)
         
         if state:
             await show_promo(update, context, content_manager, action, state)
@@ -152,7 +148,7 @@ async def delete_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE
     await show_status(update, state, confirmation_text)
     
     # Show current promo with confirmation keyboard
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
 
 async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Confirm and execute promo deletion"""
@@ -172,17 +168,17 @@ async def confirm_delete_promo(update: Update, context: ContextTypes.DEFAULT_TYP
         # Show success status message
         success_msg = f"✅ Предложение {promo_id} удалено"
         await show_status(update, state, success_msg)
-        
-        # Find next available promo to show
-        state = await check_promos_available(update, state, content_manager)
-        
-        if state:
-            await show_promo(update, context, content_manager, action, state)
 
     else:
         # Show error status message
         error_msg = f"❌ Не удалось удалить предложение {promo_id}"
         await show_status(update, state, error_msg)
+        
+    # Find available promo to show
+    state = await check_promos_available(update, state, content_manager, preserve_position=True)
+    
+    if state:
+        await show_promo(update, context, content_manager, action, state)
 
 async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Show editing options for specific promo"""
@@ -200,9 +196,9 @@ async def edit_promo_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await show_status(update, state, text=f"❌ Предложение {promo_id} не найдено")
         return
     
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
 
-    await show_status(update, state, f"📝 Что вы хотите отредактировать?")
+    await show_status(update, state, f"📝 Что надо отредактировать?")
 
 async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Handle text editing for specific promo"""
@@ -211,10 +207,10 @@ async def edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     action, state = StateManager.decode_callback_data(query.data)
     promo_id = state.promo_id
     
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
     
     # Show instruction in status message
-    instruction_text = f"📝 Отправьте новый текст для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
+    instruction_text = f"📝 Отправь новый текст для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
     await show_status(update, state, instruction_text)
     
     logger.info(f"Text edit mode activated for promo {promo_id}")
@@ -226,10 +222,10 @@ async def edit_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     action, state = StateManager.decode_callback_data(query.data)
     promo_id = state.promo_id
     
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
     
     # Show instruction in status message
-    instruction_text = f"🔗 Отправьте новую ссылку для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
+    instruction_text = f"🔗 Отправь новую ссылку для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
     await show_status(update, state, instruction_text)
 
     logger.info(f"Link edit mode activated for promo {promo_id}")
@@ -241,10 +237,10 @@ async def edit_image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     action, state = StateManager.decode_callback_data(query.data)
     promo_id = state.promo_id
     
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
     
     # Show instruction in status message
-    instruction_text = f"🖼️ Отправьте новое изображение для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
+    instruction_text = f"🖼️ Отправь новое изображение для предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
     await show_status(update, state, instruction_text)
 
     logger.info(f"Image edit mode activated for promo {promo_id}")
@@ -256,10 +252,10 @@ async def edit_all_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, c
     action, state = StateManager.decode_callback_data(query.data)
     promo_id = state.promo_id
     
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
     
     # Show instruction in status message
-    instruction_text = f"🔄 Отправьте полное сообщение для замены предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
+    instruction_text = f"🔄 Отправь полное сообщение для замены предложения {promo_id}, \n*в ответе на это сообщение* ‼️"
     await show_status(update, state, instruction_text)
 
     logger.info(f"Complete edit mode activated for promo {promo_id}")
@@ -275,7 +271,8 @@ async def back_to_promo_handler(update: Update, context: ContextTypes.DEFAULT_TY
     action, state = StateManager.decode_callback_data(query.data)
     
     # Return to promo view
-    await update_keyboard_by_action(update, query, action, state)
+    await update_keyboard_by_action(update, query, action, state, content_manager)
+    await show_admin_promo_status(update, state, content_manager)
 
 # ===== MESSAGE CREATION AND EDITING =====
 
@@ -323,13 +320,21 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         
     else:
         # EDIT EXISTING PROMO
+        await content_manager.refresh_cache(True)
         update_data = build_update_data(edit_mode, components)
-        await content_manager.update_promo(promo_id, **update_data)
-        
-        init_text = "✏️ Обновляем предложение"
-        status_text = f"✅ Предложение {promo_id} обновлено ({edit_mode})"
-        action = "adminEdit"
-        log_action = f"EDIT_PROMO_{edit_mode.upper()}"
+        if await content_manager.update_promo(promo_id, **update_data):
+            # Success path
+            init_text = "✏️ Обновляем предложение"
+            status_text = f"✅ Предложение {promo_id} обновлено ({edit_mode})"
+            action = "adminEdit"
+            log_action = f"EDIT_PROMO_{edit_mode.upper()}"
+        else:
+            # Error path
+            init_text = "❌ Ошибка обновления"
+            status_text = f"❌ Не удалось обновить предложение {promo_id}"
+            state = await check_promos_available(update, state, content_manager, preserve_position=True)
+            action = "backToPromo"
+            log_action = f"EDIT_PROMO_{edit_mode.upper()}_FAILED"
     
     await cleanup_chat_messages(update)
     
@@ -372,10 +377,10 @@ async def detect_edit_mode(update: Update) -> Tuple[str, int]:
     Returns: (edit_mode, promo_id) or ("", 0) if not in edit mode
     
     Patterns to match in replied-to message:
-    - "📝 Отправьте новый текст для предложения {promo_id}"
-    - "🔗 Отправьте новую ссылку для предложения {promo_id}"
-    - "🖼️ Отправьте новое изображение для предложения {promo_id}"
-    - "🔄 Отправьте полное сообщение для замены предложения {promo_id}"
+    - "📝 Отправь новый текст для предложения {promo_id}"
+    - "🔗 Отправь новую ссылку для предложения {promo_id}"
+    - "🖼️ Отправь новое изображение для предложения {promo_id}"
+    - "🔄 Отправь полное сообщение для замены предложения {promo_id}"
     """
     try:
         # Check if this message is a reply
@@ -388,10 +393,10 @@ async def detect_edit_mode(update: Update) -> Tuple[str, int]:
         
         # Define patterns for each edit mode
         patterns = {
-            "text": r"📝 Отправьте новый текст для предложения (\d+)",
-            "link": r"🔗 Отправьте новую ссылку для предложения (\d+)",
-            "image": r"🖼️ Отправьте новое изображение для предложения (\d+)",
-            "all": r"🔄 Отправьте полное сообщение для замены предложения (\d+)"
+            "text": r"📝 Отправь новый текст для предложения (\d+)",
+            "link": r"🔗 Отправь новую ссылку для предложения (\d+)",
+            "image": r"🖼️ Отправь новое изображение для предложения (\d+)",
+            "all": r"🔄 Отправь полное сообщение для замены предложения (\d+)"
         }
         
         # Check each pattern
@@ -436,8 +441,8 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     if action == "adminPublish":
         await toggle_promo_status_inline(update, context, content_manager)
         logger.info(f"Admin {user_id} published promo {state.promo_id}")
-    elif action == "adminList":
-        await list_promos_inline(update, context, content_manager)
+    elif action == "adminView":
+        await toggle_view_mode_inline(update, context, content_manager)
     elif action == "confirmDelete":
         await confirm_delete_promo(update, context, content_manager)
     elif action == "adminEdit":
@@ -456,35 +461,3 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         await edit_all_handler(update, context, content_manager)
     else:
         logger.warning(f"Unknown admin callback action: {action}")
-
-# ===== HELPER FUNCTIONS =====
-
-async def toggle_promo_status(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, promo_id: int):
-    """Toggle promo status (for command version)"""
-    promos = content_manager.get_all_promos()
-    promo = next((p for p in promos if p["id"] == promo_id), None)
-    
-    if not promo:
-        await safe_send_message(update, text=f"❌ Promo {promo_id} not found")
-        return
-    
-    old_status = promo["status"]
-    new_status = "inactive" if old_status == "active" else "active"
-    
-    user_id, username, _ = get_user_info(update)
-    
-    if await content_manager.update_promo_status(promo_id, new_status):
-        log_admin_action(user_id, username, "TOGGLE_PROMO_CMD", f"promo_id={promo_id}, {old_status}→{new_status}")
-        await safe_send_message(update, text=f"✅ Promo {promo_id} status changed from {old_status} to {new_status}")
-    else:
-        await safe_send_message(update, text=f"❌ Failed to update promo {promo_id}")
-
-async def delete_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager, promo_id: int):
-    """Delete promo (for command version)"""
-    user_id, username, _ = get_user_info(update)
-    
-    if await content_manager.delete_promo(promo_id):
-        log_admin_action(user_id, username, "DELETE_PROMO_CMD", f"promo_id={promo_id}")
-        await safe_send_message(update, text=f"✅ Promo {promo_id} deleted successfully")
-    else:
-        await safe_send_message(update, text=f"❌ Failed to delete promo {promo_id}")

@@ -24,14 +24,6 @@ def is_verification_expired(verified_at: int) -> bool:
     ttl = get_verification_ttl()
     return (current_time - verified_at) >= ttl
 
-async def verify_admin_access(content_manager, user_id: int, username: str = "") -> int:
-    """
-    Checks admin status and returns verified_at timestamp if successful, else 0.
-    Call this on /start or /sign_in, and again only if verification expires.
-    """
-
-    return 0
-
 def get_user_info(update: Update) -> Tuple[int, str, str]:
     """Extract user info from update"""
     if update.effective_user:

@@ -231,35 +231,48 @@ def validate_promo_data(promo: Dict) -> bool:
     
     return True
 
-# ===== FORMATTING HELPERS =====
+# ===== STATUS HELPERS =====
 
-def format_admin_summary(promos: List[Dict], max_count: int = 10) -> str:
-    """Format admin summary of promos"""
-    if not promos:
-        return "📭 No promos found."
+async def show_admin_promo_status(update: Update, state: BotState, content_manager) -> BotState:
+    """
+    Show admin status information for current promo
+    Displays: ID, position, status, creation date
+    Only shows for admins (verified_at > 0)
+    """
+    from user_handlers import show_status
+    if state.verified_at == 0:
+        return state  # Not admin, skip status
     
-    summary_lines = ["📋 **All Promos:**\n"]
+    # Determine which promos we're working with based on current mode
+    if state.show_all_mode:
+        target_promos = content_manager.get_all_promos()
+        mode_text = "всех"
+    else:
+        target_promos = content_manager.get_active_promos()
+        mode_text = "активных"
     
-    for promo in promos[:max_count]:
-        if not validate_promo_data(promo):
-            continue
-            
-        status_emoji = get_status_emoji(promo.get("status"))
-        promo_text = truncate_text(promo.get("text"), 50)
-        summary_lines.append(f"{status_emoji} **ID {promo.get('id')}**: {promo_text}")
+    if not target_promos:
+        return state  # No promos to show status for
     
-    if len(promos) > max_count:
-        summary_lines.append(f"\n... and {len(promos) - max_count} more")
+    # Find current promo and calculate position
+    current_index = get_promos_index_from_promo_id(state.promo_id, target_promos)
+    position = current_index + 1  # 1-based for display
+    total = len(target_promos)
     
-    return "\n".join(summary_lines)
-
-def format_promo_preview(pending_data: Dict, edit_id: Optional[int] = None) -> str:
-    """Format promo preview text (shows exactly how it will look)"""
-    # Just return the text as-is, no preview prefix
-    preview_text = pending_data.get('text', '')
+    # Get promo details
+    promo = target_promos[current_index] if current_index < len(target_promos) else None
+    if not promo:
+        return state  # Promo not found
     
-    # Don't add any preview indicators - show exactly as it will appear
-    return preview_text
+    # Build status text
+    status_emoji = get_status_emoji(promo.get("status", "unknown"))
+    status_name = "Вкл." if promo.get("status", "").title() == "Active" else "Выкл."
+    created_date = promo.get("created_at", "")[:10] if promo.get("created_at") else "Unknown"
+    
+    status_text = f"📋 ID {state.promo_id} ({position}/{total} {mode_text}) | {status_emoji} {status_name} | {created_date}"
+    
+    # Show the status
+    return await show_status(update, state, status_text)
 
     ## ===== STATE MANAGEMENT =====
 
@@ -290,42 +303,69 @@ def get_promo_id_from_promos_index(index: int, promos: List[Dict]) -> int:
     
     return promos[index].get("id", 0)
 
-async def check_promos_available(update, state, content_manager) -> BotState:
+async def check_promos_available(update: Update, state: BotState, content_manager: ContentManager, preserve_position: bool = False) -> BotState:
     """
     Check if there are any promos available and update state accordingly
     For users: only active promos matter
-    For admins: can see all promos, but prefer active ones
+    For admins: 
+        - In show_all_mode: all promos
+        - In active mode: active promos only, but can see all if no active
     Returns updated state with first available promo_id, or original state if none found
     """
+    # Buffer current position before refreshing cache
+    current_index = 0
+    if preserve_position and state.promo_id > 0:
+        if state.show_all_mode:
+            current_promos = content_manager.get_all_promos()
+        else:
+            current_promos = content_manager.get_active_promos()
+        
+        current_index = get_promos_index_from_promo_id(state.promo_id, current_promos)
+    
     await content_manager.refresh_cache()
     
     is_admin = state.verified_at > 0
-    active_promos = content_manager.get_active_promos()
     
+    if is_admin and state.show_all_mode:
+        # Admin in "show all" mode
+        promos = content_manager.get_all_promos()
+        mode_description = "all"
+    else:
+        # Regular user or admin in "active only" mode
+        promos = content_manager.get_active_promos()
+        mode_description = "active"
+
     # Fast path: if we have active promos, use first one
-    if active_promos:
-        first_promo_id = active_promos[0]["id"]  # Direct access, no .get()
-        logger.info(f"Using active promo ID {first_promo_id}")
-        return StateManager.update_state(state, promo_id=first_promo_id)
+    if promos:
+        # Use buffered position (0 for default, actual index for preserve_position)
+        if current_index >= len(promos):
+            current_index = len(promos) - 1  # Use last promo if out of bounds
+        
+        target_promo_id = promos[current_index]["id"]
+        logger.info(f"Using first promo from {mode_description} promos: ID {target_promo_id}")
+        return StateManager.update_state(state, promo_id=target_promo_id)
     
     # No active promos - show appropriate message
     if is_admin:
-        all_promos = content_manager.get_all_promos()
-        if all_promos:
-            # Admin with inactive promos - show list
+        if state.show_all_mode:
+            # Admin in "show all" mode but no promos at all
+            no_promos_text = ("📭 Нет предложений.\n\n"
+                             "📝 Создай новое предложение, отправив сообщение с текстом, "
+                             "изображением и ссылкой.")
+
+        else:
+            all_promos = content_manager.get_all_promos()
+            # Admin in "active only" mode but no active promos
             no_promos_text = "📭 Нет активных предложений.\n\n📋 Список всех предложений:"
             for promo in all_promos[:10]:  # Limit to 10 to avoid long messages
                 status_emoji = get_status_emoji(promo.get("status", "unknown"))
                 promo_text = truncate_text(promo.get("text", "No text"), 40)
                 no_promos_text += f"\n{status_emoji} ID {promo.get('id', '?')}: {promo_text}"
 
-            if len(all_promos) > 10:
-                no_promos_text += f"\n... и ещё {len(all_promos) - 10}"
-        else:
-            # Admin with no promos at all
-            no_promos_text = ("📭 Нет предложений.\n\n"
-                             "📝 Создайте предложение, отправив сообщение с текстом, "
-                             "изображением и ссылкой.")
+            if len(promos) > 10:
+                no_promos_text += f"\n... и ещё {len(promos) - 10}"
+            no_promos_text += "\n\n💡 Нажми '👁️ Активные' чтобы переключиться на все предложения"
+
     else:
         # Regular user with no active promos
         no_promos_text = "📭 Нет доступных предложений. Попробуйте позже: /start"
@@ -366,14 +406,14 @@ async def cleanup_chat_messages(update):
                 pass  # Ignore individual failures
 
     ## ===== KEYBOARD MANAGEMENT =====
-    
-async def update_keyboard_by_action(update: Update, query, action: str, state: BotState):
+
+async def update_keyboard_by_action(update: Update, query, action: str, state: BotState, content_manager: ContentManager):
     from keyboard_builder import KeyboardBuilder
     from user_handlers import show_status
     """Update keyboard based on action"""
     
     # Update promo keyboard to show only back button
-    reply_markup = KeyboardBuilder.build_keyboard(action, state)
+    reply_markup = KeyboardBuilder.build_keyboard(action, state, content_manager)
     try:
         await query.edit_message_reply_markup(reply_markup=reply_markup)
     except TelegramError as e:

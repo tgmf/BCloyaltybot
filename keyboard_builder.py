@@ -1,12 +1,13 @@
 from venv import logger
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from state_manager import BotState, StateManager
+from content_manager import ContentManager
 
 class KeyboardBuilder:
     """Centralized keyboard builder using stateless state management system"""
     
     @staticmethod
-    def build_keyboard(action: str, state: BotState, promo_link: str = "") -> InlineKeyboardMarkup:
+    def build_keyboard(action: str, state: BotState, promo_link: str = "", content_manager: ContentManager = None) -> InlineKeyboardMarkup:
         """Build appropriate keyboard based on action and state"""
         if action == "adminDelete":
             return KeyboardBuilder.admin_confirmation("Delete", state)
@@ -18,50 +19,84 @@ class KeyboardBuilder:
             return KeyboardBuilder.admin_back_to_promo(state)
         else:
             # Default: navigation keyboard (user + admin if verified)
-            return KeyboardBuilder.user_navigation(state, promo_link)
-    
+            return KeyboardBuilder.user_navigation(state, promo_link, content_manager)
+
     @staticmethod
-    def user_navigation(state: BotState, promo_link: str = "") -> InlineKeyboardMarkup:
+    def user_navigation(state: BotState, promo_link: str = "", content_manager: ContentManager = None) -> InlineKeyboardMarkup:
         """
         Build navigation keyboard for users (and admins in user mode)
         """
         keyboard = []
 
-        # Navigation buttons - use current state, handlers will update promo_id
-        nav_buttons = [
-            InlineKeyboardButton(
-                "《",
-                callback_data=StateManager.encode_state_for_callback("prev", state)
-            )
-        ]
-        if promo_link:
+        # Determine which promos to check for navigation
+        if state.verified_at > 0 and state.show_all_mode:
+            # Admin in "show all" mode
+            target_promos = content_manager.get_all_promos() if content_manager else []
+        else:
+            # Regular user or admin in "active only" mode
+            target_promos = content_manager.get_active_promos() if content_manager else []
+
+        # Only show navigation buttons if more than 1 promo
+        if len(target_promos) > 1:
+            nav_buttons = [
+                InlineKeyboardButton(
+                    "《",
+                    callback_data=StateManager.encode_state_for_callback("prev", state)
+                )
+            ]
+            
+            # Add link button in the middle if we have a link
+            if promo_link:
+                nav_buttons.append(
+                    InlineKeyboardButton(
+                        "🔗  Перейти",
+                        url=promo_link
+                    )
+                )
+            
             nav_buttons.append(
                 InlineKeyboardButton(
-                    "🔗  Перейти",
-                    url=promo_link
+                    "》",
+                    callback_data=StateManager.encode_state_for_callback("next", state)
                 )
             )
-        nav_buttons.append(
-            InlineKeyboardButton(
-                "》",
-                callback_data=StateManager.encode_state_for_callback("next", state)
-            )
-        )
-        keyboard.append(nav_buttons)
+            
+            keyboard.append(nav_buttons)
+        else:
+            # Only one or no promos - just show link button if available
+            if promo_link:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        "🔗  Перейти",
+                        url=promo_link
+                    )
+                ])
         
-        # Add admin buttons if user is admin
+       # Add admin buttons if user is admin
         if state.verified_at > 0:
+            # Determine toggle button text based on current mode
+            if state.show_all_mode:
+                toggle_view_text = "👁️ Все"  # Currently showing all
+            else:
+                toggle_view_text = "👁️ Активные"  # Currently showing active only
+
+            current_promo = next((p for p in target_promos if p["id"] == state.promo_id), None)
+            if current_promo and current_promo.get("status") == "active":
+                toggle_status_text = "🔴 Выкл."
+            else:
+                toggle_status_text = "🟢 Вкл."
+
             admin_buttons = [
                 InlineKeyboardButton(
-                    "📋 Список",
-                    callback_data=StateManager.encode_state_for_callback("adminList", state)
+                    toggle_view_text,
+                    callback_data=StateManager.encode_state_for_callback("adminView", state)
                 ),
                 InlineKeyboardButton(
                     "✏️ Правка",
                     callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
                 InlineKeyboardButton(
-                    "🔄 Вкл/Выкл",
+                    toggle_status_text,
                     callback_data=StateManager.encode_state_for_callback("adminToggle", state)
                 ),
                 InlineKeyboardButton(
@@ -71,27 +106,6 @@ class KeyboardBuilder:
             ]
             keyboard.append(admin_buttons)
         
-        return InlineKeyboardMarkup(keyboard)
-    
-    @staticmethod
-    def admin_promo_actions(state: BotState):
-        """Keyboard for admin promo actions (edit, toggle, delete)"""
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "✏️ Правка", 
-                    callback_data=StateManager.encode_state_for_callback("adminEdit", state)
-                ),
-                InlineKeyboardButton(
-                    "🔄 Вкл/Выкл", 
-                    callback_data=StateManager.encode_state_for_callback("adminToggle", state)
-                ),
-                InlineKeyboardButton(
-                    "🗑️ Удалить", 
-                    callback_data=StateManager.encode_state_for_callback("adminDelete", state)
-                ),
-            ]
-        ]
         return InlineKeyboardMarkup(keyboard)
 
     @staticmethod
@@ -126,31 +140,26 @@ class KeyboardBuilder:
     @staticmethod
     def admin_preview(state: BotState = None):
         """Keyboard for admin preview (publish, draft, edit, cancel)"""
-        # Create minimal state for preview actions if none provided
-        if state is None:
-            preview_state = StateManager.create_state()
-        else:
-            preview_state = state
         
         keyboard = [
             [
                 InlineKeyboardButton(
                     "🟢 Опубликовать", 
-                    callback_data=StateManager.encode_state_for_callback("adminPublish", preview_state)
+                    callback_data=StateManager.encode_state_for_callback("adminPublish", state)
                 ),
                 InlineKeyboardButton(
                     "✏️ Правка", 
-                    callback_data=StateManager.encode_state_for_callback("adminEdit", preview_state)
+                    callback_data=StateManager.encode_state_for_callback("adminEdit", state)
                 ),
             ],
             [
                 InlineKeyboardButton(
                     "← Назад",
-                    callback_data=StateManager.encode_state_for_callback("backToPromo", preview_state)
+                    callback_data=StateManager.encode_state_for_callback("backToPromo", state)
                 ),
                 InlineKeyboardButton(
                     "🗑️ Удалить", 
-                    callback_data=StateManager.encode_state_for_callback("adminDelete", preview_state)
+                    callback_data=StateManager.encode_state_for_callback("adminDelete", state)
                 ),
             ]
         ]

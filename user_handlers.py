@@ -10,7 +10,7 @@ from auth import get_user_info, refresh_admin_verification
 from keyboard_builder import KeyboardBuilder
 from state_manager import BotState, StateManager
 from utils import (
-    check_promos_available, cleanup_chat_messages, get_promo_id_from_promos_index, log_update, safe_edit_message, safe_send_message, get_promos_index_from_promo_id
+    check_promos_available, cleanup_chat_messages, get_promo_id_from_promos_index, get_status_emoji, log_update, safe_edit_message, safe_send_message, get_promos_index_from_promo_id, show_admin_promo_status
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     if state.verified_at > 0:
         welcome_text = f"🎉 Привет, {first_name}, доступно {len(content_manager.get_all_promos())} предложений (активно: {len(content_manager.get_active_promos())})"
-        welcome_text += f"\nЧтобы добавить новое предложение отправьте его в чат"
+        welcome_text += f"\nЧтобы добавить новое предложение отправь его в чат"
         # Send welcome message and capture message ID
         state = await show_status(update, state, text=welcome_text)
 
@@ -101,7 +101,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     promo_link = promo.get("link", "")
     
     # Build keyboard with current state and link
-    reply_markup = KeyboardBuilder.build_keyboard(action, state, promo_link)
+    reply_markup = KeyboardBuilder.build_keyboard(action, state, promo_link, content_manager)
 
     # Validate and clean image_file_id
     image_file_id = promo.get("image_file_id", "")
@@ -173,23 +173,33 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if not await check_promos_available(update, state, content_manager):
         return
     
-    active_promos = content_manager.get_active_promos()
+    # Determine which promos to navigate through based on state
+    is_admin = state.verified_at > 0
+    
+    if is_admin and state.show_all_mode:
+        # Admin in "show all" mode - navigate through all promos
+        target_promos = content_manager.get_all_promos()
+        logger.info("Navigation: using ALL promos (admin show_all_mode)")
+    else:
+        # Regular user or admin in "active only" mode - navigate through active promos
+        target_promos = content_manager.get_active_promos()
+        logger.info("Navigation: using ACTIVE promos only")
     
     # Find current index from promo_id
-    current_index = get_promos_index_from_promo_id(state.promo_id, active_promos)
-    
+    current_index = get_promos_index_from_promo_id(state.promo_id, target_promos)
+
     # Calculate new index based on action
     if action == "prev":
-        new_index = (current_index - 1) % len(active_promos)
+        new_index = (current_index - 1) % len(target_promos)
     elif action == "next":
-        new_index = (current_index + 1) % len(active_promos)
+        new_index = (current_index + 1) % len(target_promos)
     else:
         logger.warning(f"Unknown navigation action: {action}")
         return
     
     # Get new promo_id from calculated index
-    new_promo_id = get_promo_id_from_promos_index(new_index, active_promos)
-    
+    new_promo_id = get_promo_id_from_promos_index(new_index, target_promos)
+
     # Update state with new promo_id
     updated_state = StateManager.update_state(state, promo_id=new_promo_id)
     
@@ -197,3 +207,6 @@ async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
     # Show the target promo with updated state
     await show_promo(update, context, content_manager, action, updated_state)
+    
+    if state.verified_at > 0:
+        await show_admin_promo_status(update, updated_state, content_manager)
