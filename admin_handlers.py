@@ -20,10 +20,6 @@ from keyboard_builder import KeyboardBuilder
 
 logger = logging.getLogger(__name__)
 
-# Global pending messages storage (stateless alternative)
-# We'll use user_id as key and store pending message data
-pending_messages_store: Dict[int, Dict[str, Any]] = {}
-
 # ===== ADMIN COMMANDS =====
 
 async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
@@ -36,7 +32,7 @@ async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, co
 async def toggle_view_mode_inline(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
     """Admin: Toggle between 'active only' and 'show all' modes"""
     log_update(update, "TOGGLE VIEW MODE")
-    
+    await content_manager.refresh_cache()
     query = update.callback_query
     await query.answer()
     
@@ -292,18 +288,18 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Get current state (admin should have verified_at > 0)
     state = await refresh_admin_verification(state, content_manager, user_id, username)
-    
+
     # Check if user has admin access after verification  
     if state.verified_at == 0:
         # Redirecting non-admin user to /start
         logger.info("Non-admin user sent message, redirecting to /start")
         await start_command(update, context, content_manager)
         return
-    
+
     # Check for edit mode by looking at previous messages
     edit_mode, promo_id = await detect_edit_mode(update)
     components = extract_message_components(update.message)
-    
+
     if promo_id == 0:
         # CREATE NEW PROMO
         promo_id = await content_manager.add_promo(
@@ -420,6 +416,9 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     """Handle admin callback queries"""
     log_update(update, "ADMIN CALLBACK HANDLER")
     
+    chat_id = update.effective_chat.id
+    bot = update.get_bot()
+    await bot.send_chat_action(chat_id=chat_id, action="typing")  # Fire and forget
     query = update.callback_query
     await query.answer()
     

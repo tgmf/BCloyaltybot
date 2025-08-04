@@ -25,6 +25,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     
     await cleanup_chat_messages(update)
     
+    chat_id = update.effective_chat.id
+    bot = update.get_bot()
+    await bot.send_chat_action(chat_id=chat_id, action="typing")
+    
     logger.info(f"User {user_id} (@{username}) started bot")
     
     # Create initial state with status message ID
@@ -56,8 +60,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
         welcome_text += f"\nЧтобы добавить новое предложение отправь его в чат"
         # Send welcome message and capture message ID
         state = await show_status(update, state, text=welcome_text)
-
+    
+    await bot.send_chat_action(chat_id=chat_id, action="typing")
     state_with_promo = await check_promos_available(update, state, content_manager)
+    
 
     if not state_with_promo:
         logger.error("No valid promo found.")
