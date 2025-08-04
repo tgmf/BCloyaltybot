@@ -1,67 +1,80 @@
-# 🎯 BC Loyalty Bot
+# 🎯 Your Bot Name
 
-A unified Telegram bot system for managing and displaying promotional content with complete stateless operation. Content managers can create, edit, and publish promos through a natural Telegram interface, while users browse them with intuitive navigation. All user sessions are stateless - no server-side storage required.
+A stateless Telegram bot system for managing promotional content with zero server-side storage. Content managers create and edit promos through natural Telegram interactions, while users browse them with persistent navigation. All user state is embedded in callback data - users can return months later and continue exactly where they left off.
 
 ## ✨ Key Features
 
+### Stateless Architecture
+- **Zero Session Storage**: All state embedded in callback data
+- **Persistent Navigation**: Users return after months to exact same position  
+- **Minimal Data Storage**: Only stores admin user_ids (TODO: hash user_ids or implement password-only system)
+- **API-Limited Scalability**: Constrained by Telegram and Google API limits, not server memory
+
 ### Unified Bot Experience
 - **Single Bot Interface**: One bot handles both user browsing and admin management
-- **Stateless Design**: No session storage - all state embedded in callback data
-- **Persistent Navigation**: Users can return months later and continue from where they left
-- **Role-Based Access**: Automatic admin detection with enhanced controls
+- **Role-Based UI**: Automatic admin detection with enhanced controls
+- **Clean Chat**: Maximum 2 messages in chat (status + current promo)
+- **In-Place Updates**: Messages update without creating new ones
 
 ### User Features
-- **Promo Carousel**: Navigate through active promotions with ← → buttons
-- **Smart Layout**: Text + image + link button in a single message
-- **In-Place Navigation**: Messages update without creating new ones
+- **Promo Carousel**: Navigate through promotions with ← → buttons
+- **Smart Layout**: Text + image + link button in optimized format
 - **Instant Access**: Visit promotional links with one click
+- **Persistent Context**: No timeouts or session expiry (TODO: needs extensive testing)
 
 ### Admin Features
 - **Natural Content Creation**: Send regular Telegram messages (text + image + link)
-- **Live Management**: Edit, toggle, and delete promos with inline buttons
-- **Flexible Publishing**: Publish immediately or save as draft
-- **Command Interface**: Quick actions via `/list`, `/toggle`, `/delete` commands
+- **Live Management**: Edit, toggle, and delete promos inline
+- **Reply-Based Editing**: Edit by replying to instruction messages
+- **Dual View Modes**: Toggle between "active only" and "show all" promos
+- **Real-Time Status**: Rich status information with promo details
 
 ### Technical Highlights
-- **Google Sheets Backend**: No database required, direct spreadsheet editing
+- **Google Sheets Backend**: Direct spreadsheet editing, no database needed
 - **Telegram File Storage**: Images stored using Telegram's infrastructure (free!)
-- **Stateless Callbacks**: All navigation state encoded in button data
-- **Order Management**: Simple numeric ordering with easy insertion
-- **Real-time Sync**: Content refreshes automatically every 5 minutes
+- **Compressed State Encoding**: Base36 + JSON fallback for callback data
+- **Auto-Recovery**: Graceful handling of stale callbacks and missing promos
+- **Webhook Health Monitoring**: Automatic webhook maintenance in production
 
-## 🚀 Quick Start
+## 🚀 Quick Setup
 
 ### 1. Create Telegram Bot
 
 1. Message [@BotFather](https://t.me/BotFather) → `/newbot`
-2. Name: `BC Loyalty Bot`
-3. Username: `BCloyaltybot` (or your preferred name)
+2. Name: `Your Bot Name`
+3. Username: `yourbotname` (or your choice)
 4. Save token → `MAIN_BOT_TOKEN`
+5. (Optional) Create dev bot → `DEV_BOT_TOKEN`
 
 ### 2. Setup Google Sheets
 
 **Create Spreadsheet:**
 1. Go to [Google Sheets](https://sheets.google.com)
-2. Create new spreadsheet: "BC Loyalty Bot Content"
-3. Copy spreadsheet ID from URL
+2. Create: "Your Bot Content"
+3. Copy spreadsheet ID from URL: `1ABC...XYZ`
 
-**Sheet 1: "promo_messages"**
+**Sheet 1: "promo_messages"** (Production)
 ```
 A: id | B: text | C: image_file_id | D: link | E: order | F: status | G: created_by | H: created_at
 ```
 
-**Sheet 2: "authorized_users"**
+**Sheet 2: "promo_messages_dev"** (Development)
 ```
-A: phone_number | B: user_id | C: username | D: added_at
+A: id | B: text | C: image_file_id | D: link | E: order | F: status | G: created_by | H: created_at
+```
+
+**Sheet 3: "authorized_users"**
+```
+A: admin_id | B: user_id | C: added_at
 ```
 
 **Sample Data:**
 ```
 Sheet: promo_messages
-1 | "🎉 Welcome to BC Loyalty! Get 20% off your first order!" | "" | "https://bc.com/welcome" | 10 | "active" | "admin" | "2024-01-01"
+1 | "🎉 Welcome! Get 20% off your first order!" | "" | "https://example.com/welcome" | 10 | "active" | "123456789" | "2024-01-01"
 
 Sheet: authorized_users  
-"+1234567890" | "123456789" | "admin_user" | "2024-01-01"
+1 | "123456789" | "2024-01-01"
 ```
 
 ### 3. Google Cloud Setup
@@ -75,66 +88,79 @@ Sheet: authorized_users
 
 **Environment Variables:**
 ```bash
-MAIN_BOT_TOKEN=123456789:ABC-your-bot-token
+MAIN_BOT_TOKEN=123456789:ABC-your-production-bot-token
+DEV_BOT_TOKEN=987654321:XYZ-your-development-bot-token  # Optional
 GOOGLE_SHEETS_CREDENTIALS={"type":"service_account","project_id":"..."}
 GOOGLE_SPREADSHEET_ID=1ABC...XYZ
 HEROKU_APP_NAME=your-app-name
+DEFAULT_IMAGE_FILE_ID=AgACAgIAAxkBAAI...  # Optional default image
 ```
 
 **Deploy:**
 ```bash
 git clone your-repo
-cd bc-loyalty-bot
-heroku create bc-loyalty-bot
+cd your-bot-folder
+heroku create your-bot-name
 heroku config:set MAIN_BOT_TOKEN="your_token"
 heroku config:set GOOGLE_SHEETS_CREDENTIALS='{"type":"service_account",...}'
 heroku config:set GOOGLE_SPREADSHEET_ID="your_id"
-heroku config:set HEROKU_APP_NAME="bc-loyalty-bot"
+heroku config:set HEROKU_APP_NAME="your-bot-name"
 git push heroku main
 heroku ps:scale web=1
 ```
 
 ## 📖 Usage Guide
 
-### For Content Managers (Admins)
-
-**Creating New Promo:**
-1. Send a regular message to the bot with:
-   - Promo text (required)
-   - Image (optional) 
-   - Link anywhere in text (optional)
-2. Bot shows live preview with buttons:
-   - 📤 **Publish** (sets status to "active")
-   - 📄 **Draft** (saves for later)
-   - 📝 **Edit** (modify before saving)
-   - ❌ **Cancel** (discard)
-
-**Managing Existing Promos:**
-```bash
-/list                 # View all promos with management buttons
-/toggle 5            # Toggle promo ID 5 (active ↔ inactive)
-/delete 5            # Delete promo ID 5
-/edit 5              # Edit promo ID 5 (then send new content)
-```
-
-**Inline Management:**
-- Navigate to any promo as admin
-- Use admin buttons: 📋 List | 📝 Edit | 🔄 Toggle | 🗑️ Delete
-- All actions update in-place with status messages
-
-**Google Sheets Direct Editing:**
-- Edit spreadsheet for bulk changes
-- Reorder promos by changing order numbers
-- Bot syncs automatically every 5 minutes
-
 ### For Users
 
-**Main Bot Interface:**
-1. Send `/start` to begin
-2. Browse promos with ← → buttons  
-3. Click 🔗 Visit Link to access offers
-4. Content updates automatically
-5. Return anytime - your place is remembered
+**Simple Navigation:**
+1. Send `/start` → Browse first promo
+2. Use ← → buttons to navigate
+3. Click 🔗 to visit promotional links
+4. Return anytime - your position is preserved
+
+### For Admins
+
+**Adding New Promos:**
+1. Send message with text, image (optional), and link (optional)
+2. Bot shows preview with options:
+   - 🟢 **Publish** (make active immediately)
+   - ✏️ **Edit** (modify before publishing)
+   - ← **Back** (return to current promo)
+   - 🗑️ **Delete** (remove draft)
+
+**Managing Existing Promos:**
+- **Navigate**: Use ← → like regular users
+- **Toggle View**: 👁️ button switches "Active Only" ↔ "All Promos"
+- **Toggle Status**: 🟢/🔴 button activates/deactivates current promo
+- **Edit**: ✏️ button shows edit menu
+- **Delete**: 🗑️ button with confirmation
+
+**Editing Promos:**
+1. Click ✏️ Edit on any promo
+2. Choose what to edit:
+   - 📝 **Text Only**
+   - 🔗 **Link Only** 
+   - 🖼️ **Image Only**
+   - 🔄 **Replace All**
+3. Bot shows instruction message
+4. **Reply to instruction** with new content
+5. Changes apply immediately
+
+**Pro Tips:**
+- Bot automatically extracts links from text
+- Supports any image format/size (Telegram limits apply)
+- Order numbers control promo sequence (lower = first)
+- Edit Google Sheets directly for bulk changes
+
+### Google Sheets Direct Editing
+
+**Reorder Promos**: Change order column values
+**Bulk Status Changes**: Edit status column (active/inactive/draft)
+**Text Corrections**: Edit text column directly
+**Link Updates**: Edit link column
+
+*Bot syncs automatically every 10 minutes or when cache refresh is triggered*
 
 ## 🏗️ Architecture
 
@@ -147,51 +173,65 @@ heroku ps:scale web=1
         ▼                       ▼                       ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │ Role Detection  │    │ Real-time Sync   │    │ Embedded State  │
-│ Admin/User UI   │    │ 5min Cache       │    │ No Sessions     │
+│ Dynamic UI      │    │ 10min Cache      │    │ No Sessions     │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-**Key Components:**
-- **Unified Interface**: Single bot with role-based feature access
-- **Stateless Operation**: All navigation state embedded in callback data
-- **Google Sheets**: Simple database with direct editing capability
-- **Telegram File Storage**: Free image hosting using Telegram's infrastructure
-- **Cache System**: Optimized performance with periodic refresh
-- **Persistent State**: Users can return anytime without losing position
+**Core Principles:**
+- **Stateless Operation**: All navigation state in callback data
+- **Persistent Context**: Users can return after months
+- **Unified Interface**: Single bot with role-based features
+- **Clean UX**: Maximum 2 messages in chat at any time
+- **Real-time Sync**: Content updates across all users instantly
 
 ## 🔧 Technical Implementation
 
 ### File Structure
 ```
 bc-loyalty-bot/
-├── app.py                 # Main entry point (Heroku)
+├── app.py                 # Main entry point (Heroku/local)
 ├── bot.py                 # Bot application setup and routing
 ├── user_handlers.py       # User interface and navigation
-├── admin_handlers.py      # Admin management functions
+├── admin_handlers.py      # Admin management functions  
 ├── content_manager.py     # Google Sheets integration
 ├── auth.py               # Authentication and authorization
-├── utils.py              # Stateless utilities and helpers
+├── state_manager.py      # Stateless state management
+├── keyboard_builder.py   # Dynamic keyboard generation
+├── utils.py              # Utilities and helpers
+├── webhook_monitor.py    # Webhook health monitoring
 ├── requirements.txt      # Python dependencies
 ├── Procfile             # Heroku configuration
-├── .python-version      # Python version
+├── .python-version      # Python version (3.11.6)
 └── README.md           # This file
 ```
 
-### Stateless Design Principles
+### Stateless State Management
+
+**BotState Structure:**
+```python
+@dataclass
+class BotState:
+    promo_id: int = 0              # Current promo DB ID
+    verified_at: int = 0           # Admin verification timestamp
+    status_message_id: int = 0     # Status/welcome message ID
+    promo_message_id: int = 0      # Current promo display message ID
+    show_all_mode: bool = False    # Admin: show all vs active only
+```
 
 **Callback Data Encoding:**
 ```python
-# Simple format: action_key1_value1_key2_value2
-"next_idx_2_ts_1722176789"
+# Compressed format: action_p:promo_id_v:verified_at_m:promo_msg_id_s:status_msg_id_a:show_all
+"next_p_5_v_1a2b3c4d_m_12_s_13_a_0"
 
-# JSON format for complex state:
-"state_{'a':'admin_edit','promo_id':5,'idx':2,'ts':1722176789}"
+# JSON fallback for complex state:
+"state_{'a':'adminEdit','p':5,'v':1722176789,'s':123,'m':456,'all':1}"
 ```
 
 **State Validation:**
 - Timestamps prevent stale callback execution
-- All user context embedded in button data
-- No server-side session storage required
+- All user context embedded in button data  
+- No server-side session storage
+- Automatic fallback for invalid states
 
 ### Data Models
 
@@ -200,8 +240,8 @@ bc-loyalty-bot/
 {
   "id": 1,
   "text": "Promotional content text",
-  "image_file_id": "telegram_file_id",
-  "link": "https://example.com",
+  "image_file_id": "telegram_file_id_or_empty",
+  "link": "https://example.com_or_empty", 
   "order": 10,
   "status": "active|draft|inactive",
   "created_by": "user_id",
@@ -212,179 +252,202 @@ bc-loyalty-bot/
 **Authorization:**
 ```json
 {
-  "phone_number": "+1234567890",
-  "user_id": "123456789", 
-  "username": "admin_user",
+  "admin_id": 1,
+  "user_id": "123456789",
   "added_at": "2024-01-01"
 }
 ```
 
-## 🛠️ Management Commands
+**Note**: Currently stores Telegram user_id for admin verification.  
+**TODO**: Hash user_ids or implement password-only authentication system.
+
+## 🛠️ Management
 
 ### Bot Commands
-| Command | Access | Description | Example |
-|---------|--------|-------------|---------|
-| `/start` | All | Start bot and show promos | `/start` |
-| `/list` | Admin | View all promos with buttons | `/list` |
-| `/toggle {id}` | Admin | Toggle promo status | `/toggle 5` |
-| `/delete {id}` | Admin | Delete promo | `/delete 5` |
-| `/edit {id}` | Admin | Edit promo content | `/edit 5` |
+| Command | Access | Description |
+|---------|--------|-------------|
+| `/start` | All | Start bot and show first promo |
+| `/login [password]` | All | Admin authentication with onboarding password |
 
 ### Status Values
-| Status | Description | Visible to Users |
-|--------|-------------|------------------|
-| `active` | Published and live | ✅ Yes |
-| `draft` | Work in progress | ❌ No |
-| `inactive` | Hidden but preserved | ❌ No |
+| Status | Description | User Visible | Admin Visible |
+|--------|-------------|--------------|---------------|
+| `active` | Published and live | ✅ Yes | ✅ Yes |
+| `draft` | Work in progress | ❌ No | ✅ Yes |
+| `inactive` | Hidden but preserved | ❌ No | ✅ Yes |
 
 ### Order System
 - **Default increment**: +10 (10, 20, 30, 40...)
 - **Easy insertion**: Add 15 between 10 and 20
 - **Custom ordering**: Edit order field in Google Sheets
-- **Lower numbers appear first**
+- **Display order**: Lower numbers appear first
+
+### Admin Verification
+- **Development**: 10 minutes (for testing)
+- **Production**: 24 hours
+- **Method**: User ID match in authorized_users sheet or `/login [password]`
+- **Automatic refresh**: On each admin action
+- **TODO**: Implement more secure authentication (hash user_ids or password-only system)
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
 
-**"Access Denied" Error**
-- Check if user_id/username is in authorized_users sheet
-- Verify phone number format: `"+1234567890"` (with quotes)
-- Ensure Google Sheets has service account access
+**"Access Denied" / No Admin Buttons**
+- Verify user_id in `authorized_users` sheet (column B)
+- Try `/login [password]` with correct onboarding password
+- Ensure Google Sheets has service account Editor access
+- Try `/start` to refresh admin verification
 
 **Images Not Displaying**
-- Ensure images uploaded through Telegram (not external URLs)
-- Check if file_id is properly stored in sheets
-- Verify image file size under Telegram limits (20MB)
+- Images must be uploaded through Telegram (not external URLs)
+- Check if `image_file_id` is properly stored in sheets
+- Verify image under Telegram limits (20MB per file)
+- Set `DEFAULT_IMAGE_FILE_ID` env var for fallback image
 
 **Bot Not Responding**
 ```bash
-heroku logs --tail    # Check for errors
-heroku ps            # Verify web dyno is running
-heroku restart       # Restart if needed
+heroku logs --tail --app your-app-name    # Check for errors
+heroku ps --app your-app-name             # Verify dyno running  
+heroku restart --app your-app-name        # Restart if needed
 ```
 
-**Callback Expired Messages**
-- Normal behavior for old buttons (>1 hour)
+**"Callback Expired" Messages**
+- Normal for old buttons (stateless design)
 - Users should use `/start` to refresh
-- Consider reducing callback timeout if too aggressive
+- No data is lost - state rebuilds from scratch
+
+**Webhook Issues (Production)**
+- Built-in webhook monitoring runs every 10 minutes
+- Check logs for "Webhook health check" messages
+- Manual webhook reset: redeploy or restart dyno
+
+### Development Setup
+```bash
+git clone your-repo
+cd your-bot-folder
+
+# Python environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Environment setup
+cp .env.example .env
+# Edit .env with your tokens and credentials
+
+# Run locally (polling mode)
+python app.py
+```
 
 ### Debugging Commands
 ```bash
-# View live logs
-heroku logs --tail
+# Heroku production
+heroku logs --tail --app your-app-name
+heroku ps --app your-app-name
+heroku config --app your-app-name
+heroku restart --app your-app-name
 
-# Check app status  
-heroku ps
-
-# View configuration
-heroku config
-
-# Restart application
-heroku restart
-
-# Scale web dyno
-heroku ps:scale web=1
+# Local development
+python app.py  # Shows detailed logs
 ```
 
-## 🔐 Security & Privacy
+## 🔐 Security & Compliance
 
 ### Stateless Compliance
-- **No Personal Data Storage**: All user state in callback data only
-- **Session-Free**: Compliant with data protection regulations
-- **Temporary State**: Callback data expires automatically
-- **No Tracking**: No persistent user behavior storage
+- **Minimal Personal Data**: Only stores admin user_ids (TODO: implement hashing)
+- **Russian Law Consideration**: Working toward full compliance
+- **Session-Free Design**: No server-side user sessions
+- **Auto-Expiring State**: Callback data expires naturally
 
 ### Access Control
-- **Admin Authorization**: User ID/username matching in Google Sheets
-- **Service Account**: Limited Google Sheets access only
-- **Environment Variables**: Sensitive data stored securely
-- **Callback Validation**: Timestamped to prevent replay attacks
+- **Admin Authorization**: User ID matching in authorized_users sheet
+- **Password Authentication**: `/login [password]` command with onboarding password
+- **Service Account**: Limited Google Sheets access
+- **Environment Variables**: Sensitive data in secure storage
+- **Callback Validation**: State validation prevents tampering
+- **TODO**: Implement more secure authentication system
 
 ### Best Practices
-- Store phone numbers in quotes: `"+1234567890"`
-- Use strong, unique bot tokens
-- Limit service account permissions to specific spreadsheet
-- Regularly review authorized users list
-- Monitor logs for suspicious activity
+- Add admin user_ids directly to authorized_users sheet (column B)
+- Use unique, strong bot tokens for dev/prod
+- Set secure onboarding password in spreadsheet
+- Limit service account to single spreadsheet
+- Regular audit of authorized_users sheet
+- Monitor logs for suspicious patterns
 
 ## 💰 Cost Analysis
 
 ### Heroku Hosting
-- **Eco Dyno**: $5/month (sleeps after 30min inactivity)
+- **Eco Dyno**: $5/month (sleeps after 30min)
 - **Basic Dyno**: $7/month (always on, recommended)
 
 ### Google Services
-- **Google Sheets API**: Free (100 requests/100 seconds)
-- **Google Drive Storage**: Free (15GB limit)
+- **Sheets API**: Free (100 requests/100 seconds - plenty)
+- **Drive Storage**: Free (15GB limit)
 
 ### Telegram
 - **Bot API**: Completely free
-- **File Storage**: Free (20MB per file, 1.5GB total per bot)
+- **File Storage**: Free (20MB per file, 1.5GB total)
 
-**Total Monthly Cost: $5-7** (Heroku hosting only)
+**Total: $5-7/month** (Heroku only)
 
 ## 🚀 Deployment Options
 
 ### Heroku (Current)
 - Webhook-based operation
+- Automatic webhook health monitoring
 - Environment variable management
-- Automatic HTTPS
-- Easy scaling
+- Easy scaling and logs
 
 ### Alternative Platforms
 - **Railway**: Similar to Heroku, competitive pricing
-- **Render**: Free tier available
+- **Render**: Free tier available, easy migration
 - **DigitalOcean App Platform**: $5/month
 - **Google Cloud Run**: Pay-per-use model
 
-## 📈 Future Enhancements
+## 📈 Development & Extensions
 
-### Planned Features
+### Architecture Benefits
+- **Stateless = Scalable**: Handle unlimited concurrent users
+- **Persistent UX**: Users never lose context
+- **Zero Maintenance**: No session cleanup or user management
+- **Fault Tolerant**: Graceful recovery from any error state
+
+### Future Enhancements
 - **Scheduling**: Auto-publish promos at specific times
-- **Analytics**: Track promo views and link clicks
+- **Analytics**: Track promo views and click-through rates
 - **Rich Media**: Video and document support
-- **Bulk Operations**: CSV import/export for promos
-- **User Preferences**: Language and notification settings
+- **Bulk Operations**: CSV import/export for content
+- **Multi-language**: Language selection and content
 
-### Technical Improvements
-- **Callback Compression**: More efficient state encoding
-- **Cache Optimization**: Smarter refresh strategies
-- **Error Recovery**: Better handling of edge cases
-- **Performance Metrics**: Response time monitoring
+### Code Quality
+- **Comprehensive Logging**: Detailed debug information
+- **Error Recovery**: Graceful handling of all edge cases
+- **Type Hints**: Full type annotation for maintainability
+- **Modular Design**: Clear separation of concerns
 
 ## 🤝 Contributing
-
-### Development Setup
-```bash
-git clone your-repo
-cd bc-loyalty-bot
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your tokens
-python app.py
-```
-
-### Testing Stateless Design
-```python
-# Test callback data encoding/decoding
-from utils import encode_callback_state, StateManager.decode_callback_data
-
-# Encode state
-callback_data = encode_callback_state("next", idx=2, admin=True, ts=1722176789)
-
-# Decode state  
-action, state = StateManager.decode_callback_data(callback_data)
-print(f"Action: {action}, State: {state}")
-```
 
 ### Code Style
 - Use double quotes for strings: `"text"`
 - Stateless design principles throughout
-- Comprehensive logging for debugging
-- Error handling for all external API calls
+- Comprehensive error handling
+- Detailed logging for debugging
+
+### Testing Stateless Design
+```python
+# Test state encoding/decoding
+from state_manager import StateManager, BotState
+
+state = BotState(promo_id=5, verified_at=1722176789, show_all_mode=True)
+callback_data = StateManager.encode_state_for_callback("next", state)
+action, decoded_state = StateManager.decode_callback_data(callback_data)
+
+print(f"Original: {state}")
+print(f"Callback: {callback_data}") 
+print(f"Decoded: {action}, {decoded_state}")
+```
 
 ## 📄 License
 
@@ -393,10 +456,10 @@ MIT License - Feel free to modify and distribute.
 ## 🆘 Support
 
 ### Getting Help
-1. Check logs: `heroku logs --tail`
-2. Verify Google Sheets setup and permissions
-3. Test bot token with Telegram API
-4. Review callback data encoding/decoding
+1. Check logs: `heroku logs --tail --app your-app-name`
+2. Verify Google Sheets setup and service account permissions
+3. Test bot tokens with Telegram API
+4. Review state encoding/decoding in callback data
 
 ### Useful Resources
 - [Telegram Bot API](https://core.telegram.org/bots/api)
@@ -406,4 +469,4 @@ MIT License - Feel free to modify and distribute.
 
 ---
 
-**Ready to launch your stateless loyalty program? Deploy BC Loyalty Bot and start engaging customers with persistent, manageable promotional content!** 🎉
+**Ready to launch your stateless promotional content system? Deploy BC Loyalty Bot and start engaging users with persistent, manageable content that never loses context!** 🎉
