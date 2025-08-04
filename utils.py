@@ -413,7 +413,7 @@ async def update_keyboard_by_action(update: Update, query, action: str, state: B
     """Update keyboard based on action"""
     
     # Update promo keyboard to show only back button
-    reply_markup = KeyboardBuilder.build_keyboard(action, state, content_manager)
+    reply_markup = KeyboardBuilder.build_keyboard(action=action, state=state, content_manager=content_manager)
     try:
         await query.edit_message_reply_markup(reply_markup=reply_markup)
     except TelegramError as e:
