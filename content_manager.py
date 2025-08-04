@@ -77,18 +77,17 @@ class ContentManager:
             promos_error = str(e)
             logger.error(f"Failed to refresh promos cache: {e}")
 
-        # Refresh auth cache
+        # Refresh auth cache - now using admin_id instead of phone_number
         try:
             auth_sheet = self.sheet.worksheet("authorized_users")
             auth_data = auth_sheet.get_all_records()
             self.auth_cache = {}
             if auth_data:
                 for row in auth_data:
-                    phone = row.get("phone_number")
-                    if phone is not None and phone != "":
-                        self.auth_cache[phone] = {
+                    admin_id = row.get("admin_id")
+                    if admin_id is not None and admin_id != "":
+                        self.auth_cache[admin_id] = {
                             "user_id": row.get("user_id", ""),
-                            "username": row.get("username", ""),
                             "added_at": row.get("added_at", "")
                         }
         except Exception as e:
@@ -101,6 +100,57 @@ class ContentManager:
             logger.error(f"Cache refresh errors - promos: {promos_error}, auth: {auth_error}")
             return False
         return True
+
+    async def get_onboarding_password(self) -> Optional[str]:
+        """Get onboarding password from cell I1 of authorized_users sheet"""
+        if not self.client or not self.sheet:
+            logger.error("Google Sheets client not available")
+            return None
+            
+        try:
+            auth_sheet = self.sheet.worksheet("authorized_users")
+            password_cell = auth_sheet.acell("H1").value
+            return password_cell.strip() if password_cell else None
+        except Exception as e:
+            logger.error(f"Failed to get onboarding password: {e}")
+            return None
+
+    async def add_admin_user(self, user_id: int) -> bool:
+        """Add new admin user to authorized_users sheet"""
+        if not self.client or not self.sheet:
+            logger.error("Google Sheets client not available")
+            return False
+            
+        try:
+            auth_sheet = self.sheet.worksheet("authorized_users")
+            
+            # Get existing data to find next admin_id
+            existing_data = auth_sheet.get_all_records()
+            next_admin_id = max([int(row.get("admin_id", 0)) for row in existing_data if row.get("admin_id")], default=0) + 1
+            
+            # Check if user already exists
+            for row in existing_data:
+                if row.get("user_id") == user_id:
+                    logger.info(f"User {user_id} already exists in authorized_users")
+                    return True  # User already exists, consider it success
+            
+            # Add new row
+            new_row = [
+                next_admin_id,
+                user_id,
+                datetime.now().isoformat()
+            ]
+            auth_sheet.append_row(new_row)
+            
+            # Refresh cache to include new user
+            await self.refresh_cache(force=True)
+            
+            logger.info(f"Added admin user: admin_id={next_admin_id}, user_id={user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to add admin user: {e}")
+            return False
 
     def get_active_promos(self) -> List[Dict]:
         """Get all active promo messages"""

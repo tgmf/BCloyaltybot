@@ -168,7 +168,6 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
 async def navigation_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager):
     """Handle navigation buttons (prev/next) with stateless approach"""
     log_update(update, "NAVIGATION")
-    
     query = update.callback_query
     await query.answer()
     

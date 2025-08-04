@@ -9,7 +9,7 @@ from telegram import Update
 from content_manager import ContentManager
 from user_handlers import start_command, navigation_handler
 from admin_handlers import (
-    admin_message_handler, admin_callback_handler, back_to_promo_handler, sign_in_command
+    admin_message_handler, admin_callback_handler, back_to_promo_handler, login_command
 )
 
 # Enable logging
@@ -74,9 +74,9 @@ def register_all_handlers(application: Application, content_manager: ContentMana
     
     # ===== ADMIN COMMANDS =====
     
-    # Admin command handlers
+    # Login command for admin access
     application.add_handler(
-        CommandHandler("signIn", lambda update, context: sign_in_command(update, context, content_manager))
+        CommandHandler("login", lambda update, context: login_command(update, context, content_manager))
     )
     
     # ===== ADMIN CALLBACK HANDLERS =====

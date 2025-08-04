@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 # Import auth functions (mainly for get_user_info and logging)
-from auth import get_user_info, log_admin_action, check_admin_access, refresh_admin_verification
+from auth import get_user_info, log_admin_action, refresh_admin_verification
 # Import user handlers for shared functions
 from content_manager import ContentManager
 from user_handlers import show_promo, show_status, start_command
@@ -22,10 +22,61 @@ logger = logging.getLogger(__name__)
 
 # ===== ADMIN COMMANDS =====
 
-async def sign_in_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
-    """Sign in command for admin access verification"""
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
+    """Login command for admin access - /login {password}"""
+    log_update(update, "LOGIN COMMAND")
+    
     user_id, username, first_name = get_user_info(update)
-    return
+    
+    state = StateManager.create_state(
+        promo_id=0,  # Will be updated after showing first promo
+        verified_at=1,  # Initially not verified
+        status_message_id=0,  # Will be set when status is sent
+        promo_message_id=0  # Will be set when promo is sent
+    )
+    
+    # Parse command arguments
+    if not context.args or len(context.args) != 1:
+        await show_status(update, state, text=
+            "❌ Неправильный формат команды.\n\n"
+            "Используйте: `/login пароль`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    provided_password = context.args[0]
+    
+    try:
+        # Get the onboarding password from Google Sheets
+        correct_password = await content_manager.get_onboarding_password()
+        
+        if not correct_password:
+            await show_status(update, state, text="❌ Ошибка системы авторизации. Попробуйте позже.")
+            logger.error("Failed to retrieve onboarding password from Google Sheets")
+            return
+        
+        # Check password
+        if provided_password != correct_password:
+            await show_status(update, state, text="❌ Неверный пароль.")
+            log_admin_action(user_id, username, "LOGIN_FAILED", "incorrect password")
+            return
+        
+        # Password is correct - add user to authorized_users
+        success = await content_manager.add_admin_user(user_id)
+        
+        if success:
+            log_admin_action(user_id, username, "LOGIN_SUCCESS", "added to authorized_users")
+            
+            # Clean up the chat and redirect to /start
+            await cleanup_chat_messages(update)
+            await start_command(update, context, content_manager)
+        else:
+            await show_status(update, state, text="❌ Ошибка при добавлении администратора. Попробуйте позже.")
+            logger.error(f"Failed to add admin user {user_id} to authorized_users")
+            
+    except Exception as e:
+        logger.error(f"Error in login command: {e}")
+        await show_status(update, state, text="❌ Ошибка системы авторизации. Попробуйте позже.")
 
 # ===== INLINE ADMIN HANDLERS =====
 
