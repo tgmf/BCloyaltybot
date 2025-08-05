@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 # Import auth functions (mainly for get_user_info and logging)
-from auth import get_user_info, log_admin_action, refresh_admin_verification
+from auth import check_admin_access, get_user_info, log_admin_action, refresh_admin_verification
 # Import user handlers for shared functions
 from content_manager import ContentManager
 from user_handlers import show_promo, show_status, start_command
@@ -77,6 +77,88 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
     except Exception as e:
         logger.error(f"Error in login command: {e}")
         await show_status(update, state, text="❌ Ошибка системы авторизации. Попробуйте позже.")
+        
+async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_manager: ContentManager):
+    """Logout command - removes admin privileges by deleting from database
+    Usage: /logout or /logout {user_id}"""
+    log_update(update, "LOGOUT COMMAND")
+    
+    user_id, username, first_name = get_user_info(update)
+    
+    state = StateManager.create_state(
+        promo_id=0,  # Will be updated after showing first promo
+        verified_at=1,  # Initially not verified
+        status_message_id=0,  # Will be set when status is sent
+        promo_message_id=0  # Will be set when promo is sent
+    )
+    
+    # Check if user is currently admin
+    if not await check_admin_access(content_manager, user_id, username):
+        await show_status(update, state, text="❌ Вы не администратор.")
+        return
+    
+    # Parse target user_id (default to self)
+    target_user_id = user_id  # Default to current user
+    target_user_str = "self"
+    
+    if context.args:
+        if len(context.args) != 1:
+            await show_status(
+                update,
+                state,
+                text=f"❌ Неправильный формат команды.\n\n"
+                     f"Используйте: `/logout` или `/logout {user_id}`"
+            )
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+            target_user_str = f"user {target_user_id}"
+        except ValueError:
+            await show_status(
+                update,
+                state,
+                text="❌ Неверный формат user_id. Должно быть число."
+            )
+            return
+    
+    # Check if target user is actually admin
+    if not await check_admin_access(content_manager, target_user_id):
+        await show_status(
+            update,
+            state,
+            text=f"❌ Пользователь {target_user_id} не является администратором."
+        )
+        return
+    
+    # Remove user from authorized_users database
+    success = await content_manager.remove_admin_user(target_user_id)
+    
+    if success:
+        if target_user_id == user_id:
+            # Self logout
+            log_admin_action(user_id, username, "LOGOUT_SELF", "removed from authorized_users database")
+            
+            # Clean up and redirect to user experience
+            await cleanup_chat_messages(update)
+            await start_command(update, context, content_manager)
+        else:
+            # Logout another admin
+            log_admin_action(user_id, username, "LOGOUT_OTHER", f"removed user_id={target_user_id} from authorized_users")
+
+            await show_status(
+                update,
+                state,
+                text=f"✅ Администратор {target_user_id} исключен из системы.\n\n"
+                     "Он больше не имеет прав администратора и должен будет "
+                     "использовать /login с паролем для повторного входа."
+            )
+    else:
+        await show_status(
+            update,
+            state,
+            text=f"❌ Ошибка при исключении {target_user_str}. Попробуйте позже."
+        )
 
 # ===== INLINE ADMIN HANDLERS =====
 

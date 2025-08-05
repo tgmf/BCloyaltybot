@@ -151,6 +151,32 @@ class ContentManager:
         except Exception as e:
             logger.error(f"Failed to add admin user: {e}")
             return False
+        
+    async def remove_admin_user(self, user_id: int) -> bool:
+        """Remove admin user from authorized_users sheet"""
+        if not self.client or not self.sheet:
+            logger.error("Google Sheets client not available")
+            return False
+            
+        try:
+            auth_sheet = self.sheet.worksheet("authorized_users")
+            records = auth_sheet.get_all_records()
+            
+            user_id_str = str(user_id)
+            
+            for i, row in enumerate(records, start=2):  # Start from row 2 (skip header)
+                if str(row.get("user_id")) == user_id_str:
+                    auth_sheet.delete_rows(i)
+                    await self.refresh_cache(force=True)
+                    logger.info(f"Removed admin user: user_id={user_id}")
+                    return True
+            
+            logger.warning(f"Admin user {user_id} not found for removal")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to remove admin user: {e}")
+            return False
 
     def get_active_promos(self) -> List[Dict]:
         """Get all active promo messages"""

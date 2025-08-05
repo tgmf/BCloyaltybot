@@ -228,7 +228,6 @@ class BotState:
 ```
 
 **State Validation:**
-- Timestamps prevent stale callback execution
 - All user context embedded in button data  
 - No server-side session storage
 - Automatic fallback for invalid states
@@ -268,6 +267,7 @@ class BotState:
 |---------|--------|-------------|
 | `/start` | All | Start bot and show first promo |
 | `/login [password]` | All | Admin authentication with onboarding password |
+| `/logout [user_id]` | Admin | Remove admin privileges (self or specified user) |
 
 ### Status Values
 | Status | Description | User Visible | Admin Visible |
@@ -363,10 +363,29 @@ python app.py  # Shows detailed logs
 ### Access Control
 - **Admin Authorization**: User ID matching in authorized_users sheet
 - **Password Authentication**: `/login [password]` command with onboarding password
+- **Logout Command**: `/logout [user_id]` removes admin privileges
 - **Service Account**: Limited Google Sheets access
 - **Environment Variables**: Sensitive data in secure storage
 - **Callback Validation**: State validation prevents tampering
 - **TODO**: Implement more secure authentication system
+
+### Admin Session Management
+
+**Login Process:**
+- Use `/login [password]` with onboarding password from cell I1
+- User gets added to authorized_users sheet with auto-incremented admin_id
+- Automatic redirect to admin interface via `/start`
+
+**Logout Process:**
+- `/logout` - Remove own admin privileges
+- `/logout [user_id]` - Remove another admin's privileges (superadmin feature)
+- User gets completely removed from authorized_users sheet
+- Must use `/login [password]` again to regain access
+
+**Use Cases:**
+- Test user experience: `/logout` → see bot as regular user → `/login [password]` to return
+- Security: Change onboarding password → `/logout [compromised_user_id]` to revoke access
+- User management: Remove inactive or unauthorized admins
 
 ### Best Practices
 - Add admin user_ids directly to authorized_users sheet (column B)
