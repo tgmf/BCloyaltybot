@@ -390,7 +390,7 @@ async def cleanup_chat_messages(update):
     # We only ever have 2 bot messages max, so range 1-3 should cover everything
     messages_to_delete = [current_msg_id]  # User's message
 
-    for i in range(1, 5):  # Try 4 messages before user's message
+    for i in range(1, 3):  # Try 4 messages before user's message
         messages_to_delete.append(current_msg_id - i)
     
     try:
