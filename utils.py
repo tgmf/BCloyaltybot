@@ -386,24 +386,31 @@ async def cleanup_chat_messages(update):
     chat_id = update.effective_chat.id
     current_msg_id = update.message.message_id
     
-    # Delete user's message + try to delete recent bot messages
-    # We only ever have 2 bot messages max, so range 1-3 should cover everything
+    logger.info(f"CLEANUP: chat_id={chat_id}, current_msg_id={current_msg_id}")
+    
+    # Build list of potential messages to delete
     messages_to_delete = [current_msg_id]  # User's message
-
-    for i in range(1, 3):  # Try 4 messages before user's message
+    for i in range(1, 3):  # Try 2 messages before user's message
         messages_to_delete.append(current_msg_id - i)
     
-    try:
-        await bot.delete_messages(chat_id=chat_id, message_ids=messages_to_delete)
-        logger.info(f"Deleted messages: {messages_to_delete}")
-    except TelegramError as e:
-        logger.warning(f"Failed to delete some messages: {e}")
-        # Individual deletion fallback
-        for msg_id in messages_to_delete:
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except TelegramError:
-                pass  # Ignore individual failures
+    logger.info(f"CLEANUP: Attempting to delete messages {messages_to_delete} from chat {chat_id}")
+    
+    # Skip batch delete - go straight to individual deletions with proper error handling
+    successful_deletes = []
+    failed_deletes = []
+    
+    for msg_id in messages_to_delete:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            successful_deletes.append(msg_id)
+            logger.debug(f"CLEANUP: Successfully deleted message {msg_id} from chat {chat_id}")
+        except TelegramError as e:
+            failed_deletes.append((msg_id, str(e)))
+            logger.debug(f"CLEANUP: Could not delete message {msg_id} from chat {chat_id}: {e}")
+    
+    logger.info(f"CLEANUP: Successfully deleted {len(successful_deletes)} messages: {successful_deletes}")
+    if failed_deletes:
+        logger.debug(f"CLEANUP: Failed to delete {len(failed_deletes)} messages (expected for new chats): {[msg_id for msg_id, _ in failed_deletes]}")
 
     ## ===== KEYBOARD MANAGEMENT =====
 
