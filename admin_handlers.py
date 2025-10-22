@@ -521,6 +521,9 @@ async def detect_edit_mode(update: Update) -> Tuple[str, int]:
         reply_msg = update.message.reply_to_message
         text = reply_msg.text or reply_msg.caption or ""
         
+        logger.info(f"DEBUG: Reply message text: '{text}'")
+        logger.info(f"DEBUG: Reply message repr: {repr(text)}")
+        
         # Define patterns for each edit mode
         patterns = {
             "text": r"📝 Отправь новый текст для предложения (\d+)",
@@ -531,13 +534,14 @@ async def detect_edit_mode(update: Update) -> Tuple[str, int]:
         
         # Check each pattern
         for mode, pattern in patterns.items():
+            logger.info(f"DEBUG: Checking pattern '{pattern}' against text")
             match = re.search(pattern, text)
             if match:
                 promo_id = int(match.group(1))
                 logger.info(f"Detected edit mode via reply: {mode}, promo_id: {promo_id}")
                 return (mode, promo_id)
         
-        logger.debug(f"Reply message doesn't match edit patterns: {text[:50]}...")
+        logger.info(f"DEBUG: Reply message doesn't match edit patterns: {text[:50]}...")
         return ("", 0)
         
     except Exception as e:
