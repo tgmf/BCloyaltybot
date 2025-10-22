@@ -431,6 +431,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Check for edit mode by looking at previous messages
     edit_mode, promo_id = await detect_edit_mode(update)
+    logger.info(f"Detected edit_mode={edit_mode}, promo_id={promo_id}")
     components = extract_message_components(update.message)
 
     if promo_id == 0:
