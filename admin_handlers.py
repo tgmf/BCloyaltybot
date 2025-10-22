@@ -499,54 +499,124 @@ def build_update_data(edit_mode: str, components: Dict[str, str]) -> Dict[str, s
         logger.warning(f"Unknown edit_mode: {edit_mode}")
         return {}
     
+# async def detect_edit_mode(update: Update) -> Tuple[str, int]:
+#     """
+#     Detect edit mode by checking if message is a reply to instruction
+#     Much more efficient than forwarding messages - 0 API calls!
+    
+#     Returns: (edit_mode, promo_id) or ("", 0) if not in edit mode
+    
+#     Patterns to match in replied-to message:
+#     - "📝 Отправь новый текст для предложения {promo_id}"
+#     - "🔗 Отправь новую ссылку для предложения {promo_id}"
+#     - "🖼️ Отправь новое изображение для предложения {promo_id}"
+#     - "🔄 Отправь полное сообщение для замены предложения {promo_id}"
+#     """
+#     try:
+#         # Check if this message is a reply
+#         if not update.message.reply_to_message:
+#             logger.info("DEBUG: Message is not a reply - no edit mode detected")
+#             return ("", 0)
+        
+#         reply_msg = update.message.reply_to_message
+#         text = reply_msg.text or reply_msg.caption or ""
+        
+#         logger.info(f"DEBUG: Reply message text: '{text}'")
+#         logger.info(f"DEBUG: Reply message repr: {repr(text)}")
+        
+#         # Define patterns for each edit mode
+#         patterns = {
+#             "text": r"📝 Отправь новый текст для предложения (\d+)",
+#             "link": r"🔗 Отправь новую ссылку для предложения (\d+)",
+#             "image": r"🖼️ Отправь новое изображение для предложения (\d+)",
+#             "all": r"🔄 Отправь полное сообщение для замены предложения (\d+)"
+#         }
+        
+#         # Check each pattern
+#         for mode, pattern in patterns.items():
+#             logger.info(f"DEBUG: Checking pattern '{pattern}' against text")
+#             match = re.search(pattern, text)
+#             if match:
+#                 promo_id = int(match.group(1))
+#                 logger.info(f"Detected edit mode via reply: {mode}, promo_id: {promo_id}")
+#                 return (mode, promo_id)
+        
+#         logger.info(f"DEBUG: Reply message doesn't match edit patterns: {text[:50]}...")
+#         return ("", 0)
+        
+#     except Exception as e:
+#         logger.error(f"Error in detect_edit_mode: {e}")
+#         return ("", 0)
+
+def check_text_for_edit_mode(text: str) -> Tuple[str, int]:
+    """Check text for edit mode patterns and extract promo_id"""
+    patterns = {
+        "text": r"📝 Отправь новый текст для предложения (\d+)",
+        "link": r"🔗 Отправь новую ссылку для предложения (\d+)",
+        "image": r"🖼️ Отправь новое изображение для предложения (\d+)",
+        "all": r"🔄 Отправь полное сообщение для замены предложения (\d+)"
+    }
+    
+    for mode, pattern in patterns.items():
+        match = re.search(pattern, text)
+        if match:
+            promo_id = int(match.group(1))
+            logger.info(f"Detected edit mode: {mode}, promo_id: {promo_id}")
+            return (mode, promo_id)
+    
+    return ("", 0)
+
+async def forward_and_check_previous_message(update: Update) -> Tuple[str, int]:
+    """Check previous message (should be status) by forwarding it"""
+    try:
+        bot = update.get_bot()
+        chat_id = update.effective_chat.id
+        current_msg_id = update.message.message_id
+        
+        # Check only the immediate previous message (status message)
+        msg_id = current_msg_id - 1
+        
+        # Forward to read
+        forwarded = await bot.forward_message(
+            chat_id=chat_id, 
+            from_chat_id=chat_id, 
+            message_id=msg_id
+        )
+        text = forwarded.text or forwarded.caption or ""
+        
+        # Delete immediately
+        await bot.delete_message(chat_id=chat_id, message_id=forwarded.message_id)
+        
+        # Check for edit patterns
+        return check_text_for_edit_mode(text)
+        
+    except TelegramError as e:
+        logger.debug(f"Could not access previous message: {e}")
+        return ("", 0)
+    except Exception as e:
+        logger.error(f"Error forwarding previous message: {e}")
+        return ("", 0)
+
 async def detect_edit_mode(update: Update) -> Tuple[str, int]:
     """
-    Detect edit mode by checking if message is a reply to instruction
-    Much more efficient than forwarding messages - 0 API calls!
+    Detect edit mode - hybrid approach:
+    1. Try reply-to-message first (0 API calls)
+    2. Fallback to forwarding previous message (2 API calls)
     
     Returns: (edit_mode, promo_id) or ("", 0) if not in edit mode
-    
-    Patterns to match in replied-to message:
-    - "📝 Отправь новый текст для предложения {promo_id}"
-    - "🔗 Отправь новую ссылку для предложения {promo_id}"
-    - "🖼️ Отправь новое изображение для предложения {promo_id}"
-    - "🔄 Отправь полное сообщение для замены предложения {promo_id}"
     """
-    try:
-        # Check if this message is a reply
-        if not update.message.reply_to_message:
-            logger.debug("Message is not a reply - no edit mode detected")
-            return ("", 0)
-        
-        reply_msg = update.message.reply_to_message
-        text = reply_msg.text or reply_msg.caption or ""
-        
-        logger.info(f"DEBUG: Reply message text: '{text}'")
-        logger.info(f"DEBUG: Reply message repr: {repr(text)}")
-        
-        # Define patterns for each edit mode
-        patterns = {
-            "text": r"📝 Отправь новый текст для предложения (\d+)",
-            "link": r"🔗 Отправь новую ссылку для предложения (\d+)",
-            "image": r"🖼️ Отправь новое изображение для предложения (\d+)",
-            "all": r"🔄 Отправь полное сообщение для замены предложения (\d+)"
-        }
-        
-        # Check each pattern
-        for mode, pattern in patterns.items():
-            logger.info(f"DEBUG: Checking pattern '{pattern}' against text")
-            match = re.search(pattern, text)
-            if match:
-                promo_id = int(match.group(1))
-                logger.info(f"Detected edit mode via reply: {mode}, promo_id: {promo_id}")
-                return (mode, promo_id)
-        
-        logger.info(f"DEBUG: Reply message doesn't match edit patterns: {text[:50]}...")
-        return ("", 0)
-        
-    except Exception as e:
-        logger.error(f"Error in detect_edit_mode: {e}")
-        return ("", 0)
+    
+    # TRY 1: Check if message is a reply (cheap - 0 API calls)
+    if update.message.reply_to_message:
+        reply_text = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+        result = check_text_for_edit_mode(reply_text)
+        if result[1] > 0:  # Found valid edit mode
+            logger.info(f"Edit mode detected via reply: {result}")
+            return result
+    
+    # TRY 2: Forward previous message to check (expensive - 2 API calls)
+    logger.debug("Not a reply, checking previous message via forwarding")
+    return await forward_and_check_previous_message(update)
 
 # ===== MAIN ADMIN CALLBACK HANDLER =====
 
