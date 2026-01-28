@@ -147,6 +147,54 @@ def escape_unmatched_brackets(text):
     
     return ''.join(result)
 
+
+# ===== LOGGING UTILITIES =====
+
+def log_update(update: Update, description: str = ""):
+    """Log detailed information about an Update object"""
+    try:
+        logger.info(f"=== {description} UPDATE LOG ===")
+        logger.info(f"Update ID: {update.update_id}")
+        
+        # Log message details
+        if update.message:
+            msg = update.message
+            logger.info(f"MESSAGE:")
+            logger.info(f"  Message ID: {msg.message_id}")
+            logger.info(f"  From: {msg.from_user.id} (@{msg.from_user.username}) - {msg.from_user.first_name}")
+            logger.info(f"  Chat: {msg.chat.id} ({msg.chat.type})")
+            logger.info(f"  Text: {msg.text}")
+            logger.info(f"  Caption: {msg.caption}")
+            if msg.photo:
+                logger.info(f"  Photo: {len(msg.photo)} sizes, largest: {msg.photo[-1].file_id}")
+            if msg.entities:
+                logger.info(f"  Entities: {[(e.type, e.offset, e.length) for e in msg.entities]}")
+        
+        # Log callback query details
+        if update.callback_query:
+            cb = update.callback_query
+            logger.info(f"CALLBACK QUERY:")
+            logger.info(f"  Query ID: {cb.id}")
+            logger.info(f"  From: {cb.from_user.id} (@{cb.from_user.username}) - {cb.from_user.first_name}")
+            logger.info(f"  Data: {cb.data}")
+            if cb.message:
+                logger.info(f"  Message ID: {cb.message.message_id}")
+                logger.info(f"  Message Text/Caption: {cb.message.text or cb.message.caption}")
+        
+        logger.info(f"=== END UPDATE LOG ===")
+        
+    except Exception as e:
+        logger.error(f"Error logging update: {e}")
+
+def log_response(response_data: dict, description: str = ""):
+    """Log detailed response information"""
+    try:
+        logger.info(f"=== {description} RESPONSE LOG ===")
+        logger.info(f"Response: {json.dumps(response_data, indent=2, default=str)}")
+        logger.info(f"=== END RESPONSE LOG ===")
+    except Exception as e:
+        logger.error(f"Error logging response: {e}")
+        
 # ===== MESSAGE FORMATTING =====
 
 def format_promo_text(promo: Dict, include_status: bool = False) -> str:
