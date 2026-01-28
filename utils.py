@@ -36,18 +36,30 @@ def escape_unmatched_underscores(text):
     Valid: boundary + _ + non-space + content + non-space + _ + boundary
     """
     # Pattern for valid pairs with word boundaries
-    # (?<!\w) = not preceded by word char (boundary before)
-    # _{1,2} = one or two underscores
-    # \S = non-space after opening
-    # (?:.*?\S)? = optional content ending with non-space
-    # _{1,2} = closing underscores (same count as opening)
-    # (?!\w) = not followed by word char (boundary after)
-    pattern = r'(?<!\w)_{1,2}\S(?:.*?\S)?_{1,2}(?!\w)'
+    # We need TWO separate patterns: one for single _, one for double __
+    # This ensures opening and closing have the same count
+    
+    # Pattern for double underscores (bold): __text__
+    pattern_double = r'(?<!\w)__\S(?:.*?\S)?__(?!\w)'
+    
+    # Pattern for single underscores (italic): _text_
+    # Must NOT match if it's part of a double underscore
+    pattern_single = r'(?<!\w)(?<!_)_(?!_)\S(?:.*?\S)?(?<!_)_(?!_)(?!\w)'
     
     # Find all valid pairs
     valid_pairs = []
-    for match in re.finditer(pattern, text):
+    
+    # Find double underscore pairs first
+    for match in re.finditer(pattern_double, text):
         valid_pairs.append((match.start(), match.end()))
+    
+    # Find single underscore pairs (that aren't part of double)
+    for match in re.finditer(pattern_single, text):
+        # Check if this overlaps with any double underscore pair
+        overlaps = any(start <= match.start() < end or start < match.end() <= end 
+                      for start, end in valid_pairs)
+        if not overlaps:
+            valid_pairs.append((match.start(), match.end()))
     
     # Escape underscores NOT in valid pairs
     result = []
@@ -62,13 +74,31 @@ def escape_unmatched_underscores(text):
 
 
 def escape_unmatched_asterisks(text):
-    """Same logic for asterisks"""
-    pattern = r'(?<!\w)\*{1,2}\S(?:.*?\S)?\*{1,2}(?!\w)'
+    """Same logic for asterisks - handle single and double separately"""
     
+    # Pattern for double asterisks (bold): **text**
+    pattern_double = r'(?<!\w)\*\*\S(?:.*?\S)?\*\*(?!\w)'
+    
+    # Pattern for single asterisks (italic): *text*
+    # Must NOT match if it's part of a double asterisk
+    pattern_single = r'(?<!\w)(?<!\*)\*(?!\*)\S(?:.*?\S)?(?<!\*)\*(?!\*)(?!\w)'
+    
+    # Find all valid pairs (double first, then single)
     valid_pairs = []
-    for match in re.finditer(pattern, text):
+    
+    # Find double asterisk pairs first
+    for match in re.finditer(pattern_double, text):
         valid_pairs.append((match.start(), match.end()))
     
+    # Find single asterisk pairs (that aren't part of double)
+    for match in re.finditer(pattern_single, text):
+        # Check if this overlaps with any double asterisk pair
+        overlaps = any(start <= match.start() < end or start < match.end() <= end 
+                      for start, end in valid_pairs)
+        if not overlaps:
+            valid_pairs.append((match.start(), match.end()))
+    
+    # Escape asterisks NOT in valid pairs
     result = []
     for i, char in enumerate(text):
         if char == '*':
@@ -82,7 +112,6 @@ def escape_unmatched_asterisks(text):
 
 def escape_unmatched_backticks(text):
     """Escape unpaired backticks"""
-    # Simpler pattern - just need pairs
     pattern = r'`[^`]*`'
     
     valid_pairs = []
@@ -102,7 +131,6 @@ def escape_unmatched_backticks(text):
 
 def escape_unmatched_brackets(text):
     """Escape brackets not part of valid [text](url) links"""
-    # Complete link pattern
     pattern = r'\[([^\]]+)\]\(([^)]+)\)'
     
     valid_links = []
@@ -119,52 +147,67 @@ def escape_unmatched_brackets(text):
     
     return ''.join(result)
 
-# ===== LOGGING UTILITIES =====
 
-def log_update(update: Update, description: str = ""):
-    """Log detailed information about an Update object"""
-    try:
-        logger.info(f"=== {description} UPDATE LOG ===")
-        logger.info(f"Update ID: {update.update_id}")
+# Test cases
+def test():
+    tests = [
+        # Test 1: Double underscores (underline in Telegram)
+        ("Text __underline__ more text", "Text __underline__ more text"),
         
-        # Log message details
-        if update.message:
-            msg = update.message
-            logger.info(f"MESSAGE:")
-            logger.info(f"  Message ID: {msg.message_id}")
-            logger.info(f"  From: {msg.from_user.id} (@{msg.from_user.username}) - {msg.from_user.first_name}")
-            logger.info(f"  Chat: {msg.chat.id} ({msg.chat.type})")
-            logger.info(f"  Text: {msg.text}")
-            logger.info(f"  Caption: {msg.caption}")
-            if msg.photo:
-                logger.info(f"  Photo: {len(msg.photo)} sizes, largest: {msg.photo[-1].file_id}")
-            if msg.entities:
-                logger.info(f"  Entities: {[(e.type, e.offset, e.length) for e in msg.entities]}")
+        # Test 2: Single underscores (italic)
+        ("Text _italic_ more text", "Text _italic_ more text"),
         
-        # Log callback query details
-        if update.callback_query:
-            cb = update.callback_query
-            logger.info(f"CALLBACK QUERY:")
-            logger.info(f"  Query ID: {cb.id}")
-            logger.info(f"  From: {cb.from_user.id} (@{cb.from_user.username}) - {cb.from_user.first_name}")
-            logger.info(f"  Data: {cb.data}")
-            if cb.message:
-                logger.info(f"  Message ID: {cb.message.message_id}")
-                logger.info(f"  Message Text/Caption: {cb.message.text or cb.message.caption}")
+        # Test 3: Mixed double and single
+        ("__bold__ and _italic_ text", "__bold__ and _italic_ text"),
         
-        logger.info(f"=== END UPDATE LOG ===")
+        # Test 4: Your problematic case
+        ("BSclub_16", "BSclub\\_16"),
         
-    except Exception as e:
-        logger.error(f"Error logging update: {e}")
+        # Test 5: Real promo text
+        ("*iCleaning* – это химчистка. *Ваша скидка* по коду: __Resident__", 
+         "*iCleaning* – это химчистка. *Ваша скидка* по коду: __Resident__"),
+        
+        # Test 6: Mixed valid and invalid
+        ("Use *bold* with code_123", "Use *bold* with code\\_123"),
+        
+        # Test 7: Double asterisks
+        ("Text **bold** more", "Text **bold** more"),
+        
+        # Test 8: Unmatched opening
+        ("_no closing", "\\_no closing"),
+        
+        # Test 9: Your full problematic text
+        ("15 постоянная скидка... 👉ПРОМОКОД BSclub_16",
+         "15 постоянная скидка... 👉ПРОМОКОД BSclub\\_16"),
+    ]
+    
+    print("Testing Markdown Escaping Functions\n" + "="*50)
+    
+    passed = 0
+    failed = 0
+    
+    for i, (input_text, expected) in enumerate(tests, 1):
+        result = escape_unmatched_markdown(input_text)
+        status = "✅ PASS" if result == expected else "❌ FAIL"
+        
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+        
+        print(f"\nTest {i}: {status}")
+        print(f"Input:    {input_text}")
+        print(f"Expected: {expected}")
+        print(f"Got:      {result}")
+    
+    print("\n" + "="*50)
+    print(f"Results: {passed} passed, {failed} failed")
+    
+    return failed == 0
 
-def log_response(response_data: dict, description: str = ""):
-    """Log detailed response information"""
-    try:
-        logger.info(f"=== {description} RESPONSE LOG ===")
-        logger.info(f"Response: {json.dumps(response_data, indent=2, default=str)}")
-        logger.info(f"=== END RESPONSE LOG ===")
-    except Exception as e:
-        logger.error(f"Error logging response: {e}")
+if __name__ == "__main__":
+    success = test()
+    exit(0 if success else 1)
 
 # ===== MESSAGE FORMATTING =====
 
