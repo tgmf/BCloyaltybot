@@ -147,68 +147,6 @@ def escape_unmatched_brackets(text):
     
     return ''.join(result)
 
-
-# Test cases
-def test():
-    tests = [
-        # Test 1: Double underscores (underline in Telegram)
-        ("Text __underline__ more text", "Text __underline__ more text"),
-        
-        # Test 2: Single underscores (italic)
-        ("Text _italic_ more text", "Text _italic_ more text"),
-        
-        # Test 3: Mixed double and single
-        ("__bold__ and _italic_ text", "__bold__ and _italic_ text"),
-        
-        # Test 4: Your problematic case
-        ("BSclub_16", "BSclub\\_16"),
-        
-        # Test 5: Real promo text
-        ("*iCleaning* – это химчистка. *Ваша скидка* по коду: __Resident__", 
-         "*iCleaning* – это химчистка. *Ваша скидка* по коду: __Resident__"),
-        
-        # Test 6: Mixed valid and invalid
-        ("Use *bold* with code_123", "Use *bold* with code\\_123"),
-        
-        # Test 7: Double asterisks
-        ("Text **bold** more", "Text **bold** more"),
-        
-        # Test 8: Unmatched opening
-        ("_no closing", "\\_no closing"),
-        
-        # Test 9: Your full problematic text
-        ("15 постоянная скидка... 👉ПРОМОКОД BSclub_16",
-         "15 постоянная скидка... 👉ПРОМОКОД BSclub\\_16"),
-    ]
-    
-    print("Testing Markdown Escaping Functions\n" + "="*50)
-    
-    passed = 0
-    failed = 0
-    
-    for i, (input_text, expected) in enumerate(tests, 1):
-        result = escape_unmatched_markdown(input_text)
-        status = "✅ PASS" if result == expected else "❌ FAIL"
-        
-        if result == expected:
-            passed += 1
-        else:
-            failed += 1
-        
-        print(f"\nTest {i}: {status}")
-        print(f"Input:    {input_text}")
-        print(f"Expected: {expected}")
-        print(f"Got:      {result}")
-    
-    print("\n" + "="*50)
-    print(f"Results: {passed} passed, {failed} failed")
-    
-    return failed == 0
-
-if __name__ == "__main__":
-    success = test()
-    exit(0 if success else 1)
-
 # ===== MESSAGE FORMATTING =====
 
 def format_promo_text(promo: Dict, include_status: bool = False) -> str:
