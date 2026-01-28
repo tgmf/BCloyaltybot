@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+import re
 from datetime import datetime
 from typing import Dict, Optional, List, Tuple
 from telegram import Update
@@ -10,6 +11,113 @@ from content_manager import ContentManager
 from state_manager import BotState, StateManager
 
 logger = logging.getLogger(__name__)
+
+# ===== MARKDOWN ESCAPING =====
+
+def escape_unmatched_markdown(text):
+    """
+    Escape Markdown characters that don't form valid pairs.
+    Only complete, properly formatted pairs are preserved.
+    """
+    if not text:
+        return text
+    
+    text = escape_unmatched_underscores(text)
+    text = escape_unmatched_asterisks(text)
+    text = escape_unmatched_backticks(text)
+    text = escape_unmatched_brackets(text)
+    
+    return text
+
+
+def escape_unmatched_underscores(text):
+    """
+    Escape underscores that aren't part of valid italic/bold pairs.
+    Valid: boundary + _ + non-space + content + non-space + _ + boundary
+    """
+    # Pattern for valid pairs with word boundaries
+    # (?<!\w) = not preceded by word char (boundary before)
+    # _{1,2} = one or two underscores
+    # \S = non-space after opening
+    # (?:.*?\S)? = optional content ending with non-space
+    # _{1,2} = closing underscores (same count as opening)
+    # (?!\w) = not followed by word char (boundary after)
+    pattern = r'(?<!\w)_{1,2}\S(?:.*?\S)?_{1,2}(?!\w)'
+    
+    # Find all valid pairs
+    valid_pairs = []
+    for match in re.finditer(pattern, text):
+        valid_pairs.append((match.start(), match.end()))
+    
+    # Escape underscores NOT in valid pairs
+    result = []
+    for i, char in enumerate(text):
+        if char == '_':
+            in_valid_pair = any(start <= i < end for start, end in valid_pairs)
+            if not in_valid_pair:
+                result.append('\\')
+        result.append(char)
+    
+    return ''.join(result)
+
+
+def escape_unmatched_asterisks(text):
+    """Same logic for asterisks"""
+    pattern = r'(?<!\w)\*{1,2}\S(?:.*?\S)?\*{1,2}(?!\w)'
+    
+    valid_pairs = []
+    for match in re.finditer(pattern, text):
+        valid_pairs.append((match.start(), match.end()))
+    
+    result = []
+    for i, char in enumerate(text):
+        if char == '*':
+            in_valid_pair = any(start <= i < end for start, end in valid_pairs)
+            if not in_valid_pair:
+                result.append('\\')
+        result.append(char)
+    
+    return ''.join(result)
+
+
+def escape_unmatched_backticks(text):
+    """Escape unpaired backticks"""
+    # Simpler pattern - just need pairs
+    pattern = r'`[^`]*`'
+    
+    valid_pairs = []
+    for match in re.finditer(pattern, text):
+        valid_pairs.append((match.start(), match.end()))
+    
+    result = []
+    for i, char in enumerate(text):
+        if char == '`':
+            in_valid_pair = any(start <= i < end for start, end in valid_pairs)
+            if not in_valid_pair:
+                result.append('\\')
+        result.append(char)
+    
+    return ''.join(result)
+
+
+def escape_unmatched_brackets(text):
+    """Escape brackets not part of valid [text](url) links"""
+    # Complete link pattern
+    pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+    
+    valid_links = []
+    for match in re.finditer(pattern, text):
+        valid_links.append((match.start(), match.end()))
+    
+    result = []
+    for i, char in enumerate(text):
+        if char in ['[', ']']:
+            in_valid_link = any(start <= i < end for start, end in valid_links)
+            if not in_valid_link:
+                result.append('\\')
+        result.append(char)
+    
+    return ''.join(result)
 
 # ===== LOGGING UTILITIES =====
 

@@ -103,6 +103,12 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         await show_status(update, state, "❌ Не удалось найти это предложение.")
         return state
     
+    # Import escape function
+    from utils import escape_unmatched_markdown
+    
+    # Escape unmatched markdown characters in promo text
+    promo_text = escape_unmatched_markdown(promo.get("text", ""))
+    
     # Extract link for keyboard
     promo_link = promo.get("link", "")
     
@@ -128,7 +134,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
     if state.promo_message_id:
         # Always use edit_message_media since we always have an image now
         message_kwargs = {
-            "media": InputMediaPhoto(media=image_file_id, caption=promo["text"], parse_mode="Markdown"),
+            "media": InputMediaPhoto(media=image_file_id, caption=promo_text, parse_mode="Markdown"),
             "reply_markup": reply_markup,
             "message_id": state.promo_message_id
         }
@@ -147,7 +153,7 @@ async def show_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, content
         # Send new message - always use photo format since we always have an image
         message_kwargs = {
             "photo": image_file_id,
-            "caption": promo["text"],
+            "caption": promo_text,
             "reply_markup": reply_markup,
             "parse_mode": "Markdown"
         }
